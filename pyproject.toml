@@ -29,7 +29,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/alltuner/cookietuner"
-Documentation = "https://alltuner.github.io/cookietuner"
+Documentation = "https://cookietuner.alltuner.com"
 Repository = "https://github.com/alltuner/cookietuner"
 Issues = "https://github.com/alltuner/cookietuner/issues"
 
