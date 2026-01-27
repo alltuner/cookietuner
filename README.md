@@ -79,7 +79,7 @@ cookietuner profiles -b chrome
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/cookietuner.git
+git clone https://github.com/alltuner/cookietuner.git
 cd cookietuner
 
 # Install dependencies
