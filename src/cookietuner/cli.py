@@ -36,6 +36,7 @@ class Browser(str, Enum):
 class OutputFormat(str, Enum):
     table = "table"
     short = "short"
+    line = "line"
     json = "json"
 
 
@@ -63,6 +64,8 @@ def cookies(
     if not cookie_list:
         if output == OutputFormat.json:
             print("[]")
+        elif output == OutputFormat.line:
+            pass  # No output for line format when empty
         else:
             console.print("[yellow]No cookies found[/yellow]")
         raise typer.Exit(0)
@@ -70,6 +73,11 @@ def cookies(
     if output == OutputFormat.json:
         data = [c.model_dump(mode="json", exclude_none=True) for c in cookie_list]
         print(json.dumps(data, indent=2))
+        return
+
+    if output == OutputFormat.line:
+        for cookie in cookie_list:
+            print(f"{cookie.domain} {cookie.name} {cookie.value}")
         return
 
     if output == OutputFormat.short:
