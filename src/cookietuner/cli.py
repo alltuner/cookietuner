@@ -2,6 +2,7 @@
 # ABOUTME: Provides commands to list and extract browser cookies
 
 import json
+import sys
 from enum import Enum
 
 import typer
@@ -12,6 +13,19 @@ from . import chrome, safari
 
 app = typer.Typer(help="Extract cookies from your browsers")
 console = Console()
+
+
+def _check_macos() -> None:
+    """Ensure we're running on macOS."""
+    if sys.platform != "darwin":
+        console.print("[red]Error: cookietuner only supports macOS[/red]")
+        raise typer.Exit(1)
+
+
+@app.callback()
+def main_callback() -> None:
+    """Check platform before running any command."""
+    _check_macos()
 
 
 class Browser(str, Enum):
