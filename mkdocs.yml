@@ -1,6 +1,8 @@
 site_name: cookietuner
 site_description: Extract cookies from macOS browsers
-site_url: https://yourusername.github.io/cookietuner
+site_url: https://alltuner.github.io/cookietuner
+repo_url: https://github.com/alltuner/cookietuner
+repo_name: alltuner/cookietuner
 
 theme:
   name: material
