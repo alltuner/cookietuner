@@ -11,7 +11,7 @@ from rich.table import Table
 
 from . import chrome, safari
 
-app = typer.Typer(help="Extract cookies from your browsers")
+app = typer.Typer(help="Extract cookies from your browsers", no_args_is_help=True)
 console = Console()
 
 
