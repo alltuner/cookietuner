@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/alltuner/cookietuner/compare/v0.1.1...v0.1.2) (2026-02-04)
+
+
+### Miscellaneous Chores
+
+* **deps:** update astral-sh/setup-uv action to v7 ([#8](https://github.com/alltuner/cookietuner/issues/8)) ([192ff96](https://github.com/alltuner/cookietuner/commit/192ff96931618749a17b74baf66059838c30b76c))
+* **deps:** update github artifact actions ([#9](https://github.com/alltuner/cookietuner/issues/9)) ([02dee87](https://github.com/alltuner/cookietuner/commit/02dee87ab7d442bd9a940f7323e313acb75cfccf))
+
 ## [0.1.1](https://github.com/alltuner/cookietuner/compare/v0.1.0...v0.1.1) (2026-01-27)
 
 
