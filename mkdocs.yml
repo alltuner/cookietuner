@@ -1,40 +1,80 @@
 site_name: cookietuner
 site_description: Extract cookies from macOS browsers
 site_url: https://cookietuner.alltuner.com
+site_author: All Tuner Labs, S.L.
+
 repo_url: https://github.com/alltuner/cookietuner
 repo_name: alltuner/cookietuner
+edit_uri: edit/main/docs/
 
 theme:
   name: material
+  logo: assets/logo.png
+  favicon: assets/logo.png
   palette:
-    - scheme: default
-      primary: deep purple
-      accent: amber
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
-    - scheme: slate
-      primary: deep purple
-      accent: amber
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
   features:
     - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
     - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
     - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
 
 markdown_extensions:
-  - pymdownx.highlight:
-      anchor_linenums: true
-  - pymdownx.superfences
-  - pymdownx.tabbed:
-      alternate_style: true
   - admonition
   - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+plugins:
+  - search
 
 nav:
   - Home: index.md
   - Installation: installation.md
   - Usage: usage.md
   - API Reference: api.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/alltuner/cookietuner
+
+extra_css:
+  - stylesheets/extra.css
