@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.3](https://github.com/alltuner/cookietuner/compare/v0.1.2...v0.1.3) (2026-02-06)
+
+
+### Miscellaneous Chores
+
+* **deps:** update dependency uv_build to &gt;=0.10.0,&lt;0.11.0 ([#11](https://github.com/alltuner/cookietuner/issues/11)) ([01bb51d](https://github.com/alltuner/cookietuner/commit/01bb51d8924ccd283da69ee07c8e49b1d31a4d8e))
+
+
+### Documentation Updates
+
+* apply All Tuner Labs corporate MkDocs style ([#12](https://github.com/alltuner/cookietuner/issues/12)) ([1ef9b56](https://github.com/alltuner/cookietuner/commit/1ef9b568263c6aa76be5a8b253ce0b322fa66ced))
+
 ## [0.1.2](https://github.com/alltuner/cookietuner/compare/v0.1.1...v0.1.2) (2026-02-04)
 
 
