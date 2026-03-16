@@ -92,6 +92,20 @@ uv run pytest
 uv run cookietuner
 ```
 
+## Support the project
+
+cookietuner is an open source project built by [David Poblador i Garcia](https://davidpoblador.com/) through [All Tuner Labs](https://www.alltuner.com/).
+
+If this project was useful to you, consider supporting its development.
+
+❤️ **Sponsor development**
+https://github.com/sponsors/alltuner
+
+☕ **One-time support**
+https://buymeacoffee.com/alltuner
+
+Your support helps fund the continued development of cookietuner and other open source developer tools such as [Factory Floor](https://github.com/alltuner/factoryfloor).
+
 ## License
 
 MIT
