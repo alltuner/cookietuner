@@ -1,27 +1,58 @@
-# cookietuner
+<h1 align="center">cookietuner</h1>
 
-A command-line tool to extract and display cookies from macOS browsers.
+<p align="center">
+  <strong>Extract and display cookies from macOS browsers.</strong><br>
+  Decrypts Chrome's macOS Keychain entries and parses Safari's binary cookie store.
+</p>
 
-## Installation
+<p align="center">
+  <a href="https://github.com/alltuner/cookietuner">GitHub</a> &middot;
+  <a href="https://alltuner.com/sponsor">Sponsor</a>
+</p>
 
-The easiest way to run cookietuner is with [uv](https://docs.astral.sh/uv/):
+<p align="center">
+  <img src="https://img.shields.io/pypi/v/cookietuner?color=5B2333" alt="PyPI">
+  <img src="https://img.shields.io/github/license/alltuner/cookietuner?color=5B2333" alt="License">
+  <img src="https://img.shields.io/github/stars/alltuner/cookietuner?color=5B2333" alt="Stars">
+</p>
+
+---
+
+## Get Started
+
+Run without installing:
 
 ```bash
 uvx cookietuner
 ```
 
-Or install it permanently:
+Or install permanently:
 
 ```bash
 uv tool install cookietuner
 ```
+
+---
+
+## What is cookietuner?
+
+A command-line tool that reads cookies straight from your local macOS browser stores. It decrypts Chrome's encrypted cookie database via the macOS Keychain (Chrome 130+ format) and parses Safari's binary `Cookies.binarycookies` file directly. No browser automation, no extensions.
+
+### Features
+
+- **Chrome support** — decrypts cookies using macOS Keychain, Chrome 130+ format.
+- **Safari support** — parses the binary cookies format with SameSite detection.
+- **Multiple output formats** — table, short, line, and JSON.
+- **Domain filtering** — filter by partial domain match.
+- **Profile selection** — choose which browser profile to read from.
+- **Cookie metadata** — expiration, Secure, HttpOnly, and SameSite flags.
 
 ## Usage
 
 ### List cookies
 
 ```bash
-# Chrome cookies (browser is required)
+# Chrome cookies (browser flag is required)
 cookietuner cookies -b chrome
 
 # Safari cookies
@@ -30,65 +61,42 @@ cookietuner cookies -b safari
 # Filter by domain
 cookietuner cookies -b chrome -d google.com
 
-# Use a specific Chrome profile
+# Pick a Chrome profile
 cookietuner cookies -b chrome -p "Profile 1"
 ```
 
 ### Output formats
 
-```bash
-# Full table with all details (default)
-cookietuner cookies -b chrome -o table
-
-# Short table with just domain, name, value
-cookietuner cookies -b chrome -o short
-
-# Space-separated line format (for scripting)
-cookietuner cookies -b chrome -o line
-
-# JSON output
-cookietuner cookies -b chrome -o json
-```
+| Format  | Flag       | Use case                              |
+|---------|------------|---------------------------------------|
+| Full table (default) | `-o table` | Browsing all cookie details          |
+| Short table | `-o short` | Just domain, name, value             |
+| Line | `-o line`  | Space-separated, for shell scripting |
+| JSON | `-o json`  | Piping into `jq` or another tool     |
 
 ### List browser profiles
 
 ```bash
-# List all profiles
+# All profiles
 cookietuner profiles
 
 # Filter by browser
 cookietuner profiles -b chrome
 ```
 
-## Features
-
-- **Chrome support**: Decrypts cookies using macOS Keychain, supports Chrome 130+ format
-- **Safari support**: Parses the binary cookies format with SameSite detection
-- **Multiple output formats**: table, short, and JSON
-- **Domain filtering**: Filter cookies by partial domain match
-- **Profile selection**: Choose which browser profile to read from
-- **Cookie metadata**: Shows expiration, Secure, HttpOnly, and SameSite flags
-
 ## Requirements
 
-- macOS (the tool only works on macOS)
-- Python 3.14+
-- Chrome and/or Safari browser
+- macOS (the tool reads macOS-specific cookie stores).
+- Python 3.14+.
+- Chrome and/or Safari.
 
 ## Development
 
 ```bash
-# Clone the repository
 git clone https://github.com/alltuner/cookietuner.git
 cd cookietuner
-
-# Install dependencies
 uv sync
-
-# Run tests
 uv run pytest
-
-# Run the CLI
 uv run cookietuner
 ```
 
@@ -96,16 +104,15 @@ uv run cookietuner
 
 cookietuner is an open source project built by [David Poblador i Garcia](https://davidpoblador.com/) through [All Tuner Labs](https://www.alltuner.com/).
 
-If this project was useful to you, consider supporting its development.
-
-❤️ **Sponsor development**
-https://github.com/sponsors/alltuner
-
-☕ **One-time support**
-https://buymeacoffee.com/alltuner
-
-Your support helps fund the continued development of cookietuner and other open source developer tools such as [Factory Floor](https://github.com/alltuner/factoryfloor).
+If this project was useful to you, [consider supporting its development](https://alltuner.com/sponsor).
 
 ## License
 
-MIT
+[MIT](LICENSE)
+
+---
+
+<p align="center">
+  Built by <a href="https://davidpoblador.com">David Poblador i Garcia</a> with the support of <a href="https://alltuner.com">All Tuner Labs</a>.<br>
+  Made with ❤️ in Poblenou, Barcelona.
+</p>
