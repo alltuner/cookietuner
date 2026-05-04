@@ -1,4 +1,6 @@
-<h1 align="center">cookietuner</h1>
+<p align="center">
+  <img src="https://brand.alltuner.com/logos/cookietuner/horizontal.png" alt="cookietuner" width="500">
+</p>
 
 <p align="center">
   <strong>Extract and display cookies from macOS browsers.</strong><br>
