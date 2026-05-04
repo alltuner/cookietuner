@@ -1,4 +1,6 @@
-<h1 align="center">cookietuner</h1>
+<p align="center">
+  <img src="https://brand.alltuner.com/logos/cookietuner/horizontal.png" alt="cookietuner" width="500">
+</p>
 
 <p align="center">
   <strong>Extract and display cookies from macOS browsers.</strong><br>
@@ -100,15 +102,15 @@ uv run pytest
 uv run cookietuner
 ```
 
+## License
+
+[MIT](LICENSE)
+
 ## Support the project
 
 cookietuner is an open source project built by [David Poblador i Garcia](https://davidpoblador.com/) through [All Tuner Labs](https://www.alltuner.com/).
 
 If this project was useful to you, [consider supporting its development](https://alltuner.com/sponsor).
-
-## License
-
-[MIT](LICENSE)
 
 ---
 
