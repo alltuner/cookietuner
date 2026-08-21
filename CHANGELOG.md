@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.5](https://github.com/alltuner/cookietuner/compare/v0.1.4...v0.1.5) (2026-08-21)
+
+
+### Features
+
+* **site:** publish through the fleet's registry instead of GitHub Pages ([#36](https://github.com/alltuner/cookietuner/issues/36)) ([d77ceee](https://github.com/alltuner/cookietuner/commit/d77ceee87e52f4c4230e79249292fe25b733aa66))
+
+
+### Miscellaneous Chores
+
+* drop the GitHub Pages jobs from the release workflow ([#38](https://github.com/alltuner/cookietuner/issues/38)) ([9577649](https://github.com/alltuner/cookietuner/commit/9577649b590d2f344b9c78fc067c5caea6a569a1))
+
 ## [0.1.4](https://github.com/alltuner/cookietuner/compare/v0.1.3...v0.1.4) (2026-05-04)
 
 
