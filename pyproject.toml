@@ -5,7 +5,7 @@ description = "Extract and display cookies from macOS browsers (Chrome, Safari)"
 readme = "README.md"
 license = "MIT"
 authors = [
-    { name = "David Poblador i Garcia", email = "david@poblador.com" }
+    { name = "David Poblador i Garcia", email = "hello@alltuner.com" }
 ]
 requires-python = ">=3.14"
 keywords = ["cookies", "browser", "chrome", "safari", "macos", "cli"]
