@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/alltuner/cookietuner/compare/v0.1.5...v0.1.6) (2026-10-06)
+
+
+### Miscellaneous Chores
+
+* keep uv.lock version in sync on release ([#42](https://github.com/alltuner/cookietuner/issues/42)) ([2419aac](https://github.com/alltuner/cookietuner/commit/2419aac95eef66d0f13ccd346848e2b68c516776))
+
 ## [0.1.5](https://github.com/alltuner/cookietuner/compare/v0.1.4...v0.1.5) (2026-10-06)
 
 
