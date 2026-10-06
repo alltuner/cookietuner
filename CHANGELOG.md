@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.5](https://github.com/alltuner/cookietuner/compare/v0.1.4...v0.1.5) (2026-10-06)
+
+
+### Features
+
+* **site:** publish through the fleet's registry instead of GitHub Pages ([#36](https://github.com/alltuner/cookietuner/issues/36)) ([d77ceee](https://github.com/alltuner/cookietuner/commit/d77ceee87e52f4c4230e79249292fe25b733aa66))
+
+
+### Miscellaneous Chores
+
+* **deps:** update actions/checkout action to v7 ([#31](https://github.com/alltuner/cookietuner/issues/31)) ([bc460b0](https://github.com/alltuner/cookietuner/commit/bc460b097d7851f187b5c5f027af57d8bda19351))
+* **deps:** update astral-sh/setup-uv action to v10 ([#35](https://github.com/alltuner/cookietuner/issues/35)) ([f976cb8](https://github.com/alltuner/cookietuner/commit/f976cb8654268a805b0812b5c5a05d4546eb126a))
+* **deps:** update dependency uv_build to &gt;=0.12.23,&lt;0.13.0 ([#34](https://github.com/alltuner/cookietuner/issues/34)) ([8b45241](https://github.com/alltuner/cookietuner/commit/8b4524199b839162a26ced8c78b6d810ca580e2d))
+* drop the GitHub Pages jobs from the release workflow ([#38](https://github.com/alltuner/cookietuner/issues/38)) ([9577649](https://github.com/alltuner/cookietuner/commit/9577649b590d2f344b9c78fc067c5caea6a569a1))
+* refresh stale uv.lock ([#41](https://github.com/alltuner/cookietuner/issues/41)) ([7afd563](https://github.com/alltuner/cookietuner/commit/7afd563adb7c94fb7e7702a58fb878f276a9830d))
+* use hello@alltuner.com as author email ([#39](https://github.com/alltuner/cookietuner/issues/39)) ([a2ea259](https://github.com/alltuner/cookietuner/commit/a2ea259dd3fde3f034b3af6a9a6c8e1ec7e81e90))
+
+
+### CI/CD Changes
+
+* skip claude-review on bot PRs ([#40](https://github.com/alltuner/cookietuner/issues/40)) ([3deb1f0](https://github.com/alltuner/cookietuner/commit/3deb1f0c48a315fe5ecae064c7609b6a721c6c9c))
+
 ## [0.1.4](https://github.com/alltuner/cookietuner/compare/v0.1.3...v0.1.4) (2026-05-04)
 
 
