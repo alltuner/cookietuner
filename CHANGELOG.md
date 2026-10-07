@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/alltuner/cookietuner/compare/v0.1.6...v0.1.7) (2026-10-07)
+
+
+### CI/CD Changes
+
+* review Renovate PRs with claude-review ([#44](https://github.com/alltuner/cookietuner/issues/44)) ([a6dc110](https://github.com/alltuner/cookietuner/commit/a6dc110b1b119f7a5e2f12b596e90d14c858ab76))
+
 ## [0.1.6](https://github.com/alltuner/cookietuner/compare/v0.1.5...v0.1.6) (2026-10-06)
 
 
