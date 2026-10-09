@@ -4,6 +4,7 @@
 from datetime import datetime
 
 from cookietuner.chrome import get_cookies, list_profiles
+from cookietuner.domain import domain_matches
 from cookietuner.models import Cookie
 
 
@@ -55,7 +56,7 @@ def test_get_cookies_by_domain() -> None:
     """get_cookies should filter by domain when specified."""
     cookies = get_cookies(domain="google.com")
     for cookie in cookies:
-        assert "google" in cookie.domain.lower()
+        assert domain_matches(cookie.domain, "google.com")
 
 
 def test_list_profiles_returns_browser_profiles() -> None:

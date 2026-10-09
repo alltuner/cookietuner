@@ -46,7 +46,7 @@ def cookies(
         ..., "--browser", "-b", help="Browser to extract from"
     ),
     domain: str | None = typer.Option(
-        None, "--domain", "-d", help="Filter by domain (partial match)"
+        None, "--domain", "-d", help="Filter by exact domain (leading dot ignored)"
     ),
     profile: str = typer.Option(
         "Default", "--profile", "-p", help="Browser profile name"
