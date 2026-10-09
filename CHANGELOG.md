@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/alltuner/cookietuner/compare/v0.1.7...v0.2.0) (2026-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* --domain / get_cookies(domain=...) no longer does partial matching.
+
+### Features
+
+* match cookie domains exactly instead of by substring ([#46](https://github.com/alltuner/cookietuner/issues/46)) ([3580b98](https://github.com/alltuner/cookietuner/commit/3580b98816409aa5ab79d02f4c27a4e8646dc24e))
+
 ## [0.1.7](https://github.com/alltuner/cookietuner/compare/v0.1.6...v0.1.7) (2026-10-07)
 
 

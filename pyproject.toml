@@ -1,6 +1,6 @@
 [project]
 name = "cookietuner"
-version = "0.1.7"
+version = "0.2.0"
 description = "Extract and display cookies from macOS browsers (Chrome, Safari)"
 readme = "README.md"
 license = "MIT"
