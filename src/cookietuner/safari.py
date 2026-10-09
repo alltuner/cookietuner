@@ -5,6 +5,7 @@ import struct
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from .domain import domain_matches
 from .models import BrowserProfile, Cookie
 
 # Sandboxed Safari (modern macOS) stores cookies here
@@ -124,7 +125,8 @@ def get_cookies(
     Reads cookies from Safari's binarycookies file.
 
     Args:
-        domain: If specified, only return cookies matching this domain.
+        domain: If specified, only return cookies set for exactly this
+                domain (a leading dot is ignored, subdomains don't match).
         profile: Ignored for Safari (only one profile).
 
     Returns:
@@ -191,7 +193,7 @@ def get_cookies(
             cookie = _parse_cookie(cookie_data)
 
             if cookie:
-                if domain is None or domain.lower() in cookie.domain.lower():
+                if domain is None or domain_matches(cookie.domain, domain):
                     cookies.append(cookie)
 
     return cookies

@@ -1,6 +1,7 @@
 # ABOUTME: Tests for Safari cookie extraction
 # ABOUTME: Verifies Safari binarycookies parsing
 
+from cookietuner.domain import domain_matches
 from cookietuner.safari import get_cookies, list_profiles
 
 
@@ -25,4 +26,4 @@ def test_get_cookies_filters_by_domain() -> None:
     """get_cookies should filter by domain when specified."""
     cookies = get_cookies(domain="apple.com")
     for cookie in cookies:
-        assert "apple" in cookie.domain.lower()
+        assert domain_matches(cookie.domain, "apple.com")

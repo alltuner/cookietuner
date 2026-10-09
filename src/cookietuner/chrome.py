@@ -12,6 +12,7 @@ from pathlib import Path
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from .domain import domain_matches
 from .models import BrowserProfile, Cookie
 
 # Chrome uses microseconds since Jan 1, 1601 (Windows epoch)
@@ -145,8 +146,8 @@ def get_cookies(
     Reads cookies from Chrome's cookie database.
 
     Args:
-        domain: If specified, only return cookies matching this domain.
-                Matches if the domain contains this string.
+        domain: If specified, only return cookies set for exactly this
+                domain (a leading dot is ignored, subdomains don't match).
         profile: Chrome profile to read from (default: "Default").
 
     Returns:
@@ -181,8 +182,9 @@ def get_cookies(
         params: tuple[str, ...] = ()
 
         if domain:
+            # Cheap SQL prefilter; domain_matches below makes it exact.
             query += " WHERE host_key LIKE ?"
-            params = (f"%{domain}%",)
+            params = (f"%{domain.lstrip('.')}",)
 
         cursor.execute(query, params)
         rows = cursor.fetchall()
@@ -199,6 +201,8 @@ def get_cookies(
             is_httponly,
             samesite,
         ) in rows:
+            if domain and not domain_matches(host_key, domain):
+                continue
             try:
                 value = _decrypt_value(encrypted_value, key, strip_hash)
                 cookies.append(

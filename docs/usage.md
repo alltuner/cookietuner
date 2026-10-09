@@ -20,7 +20,7 @@ The `cookies` command extracts cookies from a browser. The browser flag is requi
 
 ### Filter by domain
 
-Use `-d` or `--domain` to filter cookies by domain (partial match):
+Use `-d` or `--domain` to filter cookies by exact domain. A leading dot is ignored and subdomains are not included (`-d x.com` returns `.x.com` cookies but not `api.x.com` or `dropbox.com`):
 
 ```bash
 uvx cookietuner cookies -b chrome -d google.com
@@ -133,7 +133,7 @@ Usage: cookietuner cookies [OPTIONS]
 
 Options:
   -b, --browser [chrome|safari]       Browser to extract from (required)
-  -d, --domain TEXT                   Filter by domain (partial match)
+  -d, --domain TEXT                   Filter by exact domain (leading dot ignored)
   -p, --profile TEXT                  Browser profile name [default: Default]
   -o, --output [table|short|line|json] Output format [default: table]
   --help                              Show this message and exit.

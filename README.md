@@ -45,7 +45,7 @@ A command-line tool that reads cookies straight from your local macOS browser st
 - **Chrome support** — decrypts cookies using macOS Keychain, Chrome 130+ format.
 - **Safari support** — parses the binary cookies format with SameSite detection.
 - **Multiple output formats** — table, short, line, and JSON.
-- **Domain filtering** — filter by partial domain match.
+- **Domain filtering** — filter by exact domain (`x.com` matches `.x.com`, not `api.x.com` or `dropbox.com`).
 - **Profile selection** — choose which browser profile to read from.
 - **Cookie metadata** — expiration, Secure, HttpOnly, and SameSite flags.
 
