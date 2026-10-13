@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/alltuner/cookietuner/compare/v0.2.0...v0.2.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* **chrome:** report macOS permission denials instead of crashing ([#52](https://github.com/alltuner/cookietuner/issues/52)) ([669f116](https://github.com/alltuner/cookietuner/commit/669f116329ed4428a0c3a161e3e4c42fe0e43cf2))
+
 ## [0.2.0](https://github.com/alltuner/cookietuner/compare/v0.1.7...v0.2.0) (2026-10-09)
 
 
