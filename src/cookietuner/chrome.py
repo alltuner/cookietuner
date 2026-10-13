@@ -13,6 +13,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from .domain import domain_matches
+from .errors import CookieStoreUnreadable
 from .models import BrowserProfile, Cookie
 
 # Chrome uses microseconds since Jan 1, 1601 (Windows epoch)
@@ -28,14 +29,33 @@ SAME_SITE_MAP: dict[int, str | None] = {
 CHROME_BASE_PATH = Path.home() / "Library/Application Support/Google/Chrome"
 
 
+def _unreadable(path: Path, exc: OSError) -> CookieStoreUnreadable:
+    """Builds the error for a path macOS lets us stat but not read."""
+    return CookieStoreUnreadable(
+        f"Chrome's profile data is unreadable: {path}: {exc.strerror}. "
+        "On macOS 27 this folder is restricted to Chrome itself, and Full Disk "
+        "Access does not lift it; on earlier versions, grant Full Disk Access "
+        "to your terminal."
+    )
+
+
 def list_profiles() -> list[BrowserProfile]:
-    """Lists all available Chrome profiles."""
+    """Lists all available Chrome profiles.
+
+    Raises:
+        CookieStoreUnreadable: if the profile folder can be stat'd but not listed.
+    """
     profiles = []
 
     if not CHROME_BASE_PATH.exists():
         return profiles
 
-    for item in CHROME_BASE_PATH.iterdir():
+    try:
+        items = sorted(CHROME_BASE_PATH.iterdir())
+    except OSError as exc:
+        raise _unreadable(CHROME_BASE_PATH, exc) from exc
+
+    for item in items:
         if item.is_dir():
             cookies_file = item / "Cookies"
             if cookies_file.exists():
@@ -152,20 +172,28 @@ def get_cookies(
 
     Returns:
         List of Cookie objects.
+
+    Raises:
+        CookieStoreUnreadable: if the cookie file can be stat'd but not read.
     """
     cookie_path = _get_cookie_path(profile)
 
     if not cookie_path.exists():
         return []
 
-    key = _get_encryption_key()
-
     # Copy the database to avoid locking issues while Chrome is running
     with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
         tmp_path = Path(tmp.name)
 
     try:
-        shutil.copy2(cookie_path, tmp_path)
+        # Copy before reading the Keychain, so an unreadable store fails without
+        # first prompting for Keychain access.
+        try:
+            shutil.copy2(cookie_path, tmp_path)
+        except OSError as exc:
+            raise _unreadable(cookie_path, exc) from exc
+
+        key = _get_encryption_key()
 
         conn = sqlite3.connect(tmp_path)
         cursor = conn.cursor()
