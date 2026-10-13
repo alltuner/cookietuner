@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import chrome, safari
+from .errors import CookieStoreUnreadable
 
 app = typer.Typer(help="Extract cookies from your browsers", no_args_is_help=True)
 console = Console()
@@ -56,10 +57,14 @@ def cookies(
     ),
 ) -> None:
     """List cookies from a browser."""
-    if browser == Browser.chrome:
-        cookie_list = chrome.get_cookies(domain=domain, profile=profile)
-    elif browser == Browser.safari:
-        cookie_list = safari.get_cookies(domain=domain)
+    try:
+        if browser == Browser.chrome:
+            cookie_list = chrome.get_cookies(domain=domain, profile=profile)
+        elif browser == Browser.safari:
+            cookie_list = safari.get_cookies(domain=domain)
+    except CookieStoreUnreadable as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise typer.Exit(1) from exc
 
     if not cookie_list:
         if output == OutputFormat.json:
@@ -136,7 +141,10 @@ def profiles(
     profile_list = []
 
     if browser is None or browser == Browser.chrome:
-        profile_list.extend(chrome.list_profiles())
+        try:
+            profile_list.extend(chrome.list_profiles())
+        except CookieStoreUnreadable as exc:
+            console.print(f"[yellow]Warning: {exc}[/yellow]")
 
     if browser is None or browser == Browser.safari:
         profile_list.extend(safari.list_profiles())
