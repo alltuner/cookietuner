@@ -169,6 +169,20 @@ def test_capture_times_out_naming_the_cookies_that_never_arrived(
 
 @requires_chrome
 @pytest.mark.usefixtures("no_leftover_profiles")
+def test_capture_names_the_domain_a_wanted_cookie_turned_up_on(
+    login_url: str,
+) -> None:
+    """Exact domain matching is the likeliest reason for a fruitless wait."""
+    with pytest.raises(CaptureTimeout) as caught:
+        capture(url=login_url, domain="localhost", until={"session_id"}, timeout=8)
+
+    message = str(caught.value)
+    assert "127.0.0.1" in message
+    assert "s3cr3t" not in message
+
+
+@requires_chrome
+@pytest.mark.usefixtures("no_leftover_profiles")
 def test_capture_returns_everything_for_the_domain_when_the_window_closes(
     self_closing_url: str,
 ) -> None:

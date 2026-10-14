@@ -271,23 +271,48 @@ async def capture_async(
     wanted = set(until or ())
     profile = Path(tempfile.mkdtemp(prefix=PROFILE_PREFIX))
     browser = _Chrome(chrome, profile, url, proxy)
+    other_domains: dict[str, set[str]] = {}
 
     try:
         await browser.start()
         try:
             async with asyncio.timeout(timeout):
-                return await _wait_for_cookies(browser, domain, wanted)
+                return await _wait_for_cookies(browser, domain, wanted, other_domains)
         except TimeoutError as exc:
             waited_for = ", ".join(sorted(wanted)) if wanted else "the window to close"
             raise CaptureTimeout(
                 f"Timed out after {timeout:g}s waiting for {waited_for}"
+                + _elsewhere(wanted, other_domains)
             ) from exc
     finally:
         await browser.stop()
 
 
+def _elsewhere(wanted: set[str], other_domains: dict[str, set[str]]) -> str:
+    """Points at cookies that did arrive, but on a domain that wasn't asked for.
+
+    Domains don't match by subdomain, so asking for ``example.com`` when the
+    cookie lands on ``www.example.com`` otherwise just waits out the clock.
+    """
+    sightings = [
+        f"{name} on {', '.join(sorted(other_domains[name]))}"
+        for name in sorted(wanted)
+        if other_domains.get(name)
+    ]
+    if not sightings:
+        return ""
+    return (
+        ". Did turn up, on a domain you didn't ask for: "
+        + "; ".join(sightings)
+        + " (domains match exactly, so subdomains need naming in full)"
+    )
+
+
 async def _wait_for_cookies(
-    browser: _Chrome, domain: str | None, wanted: set[str]
+    browser: _Chrome,
+    domain: str | None,
+    wanted: set[str],
+    other_domains: dict[str, set[str]],
 ) -> list[Cookie]:
     """Polls the browser until the wanted cookies exist or the window closes.
 
@@ -295,39 +320,47 @@ async def _wait_for_cookies(
     stop being readable, so each pass takes a snapshot and only then checks
     whether the window is still there. That leaves the last snapshot as the
     answer, taken as late as it can be.
+
+    Wanted cookies seen on some other domain are recorded in ``other_domains``,
+    so a fruitless wait can say where they went.
     """
     found: list[Cookie] = []
     seen_a_window = False
 
     while True:
         try:
-            found = [
-                cookie
-                for cookie in (to_cookie(raw) for raw in await browser.cookies())
-                if domain is None or domain_matches(cookie.domain, domain)
-            ]
+            found = []
+            for cookie in (to_cookie(raw) for raw in await browser.cookies()):
+                if domain is None or domain_matches(cookie.domain, domain):
+                    found.append(cookie)
+                elif cookie.name in wanted:
+                    other_domains.setdefault(cookie.name, set()).add(cookie.domain)
+
             if wanted and not _missing(wanted, found):
                 return found
 
             if await browser.open_page_count():
                 seen_a_window = True
             elif seen_a_window:
-                return _finish_on_close(found, wanted)
+                return _finish_on_close(found, wanted, other_domains)
         except _BrowserGone as exc:
             if seen_a_window:
-                return _finish_on_close(found, wanted)
+                return _finish_on_close(found, wanted, other_domains)
             raise BrowserClosedEarly(f"Chrome quit before signing in: {exc}") from exc
 
         await asyncio.sleep(POLL_INTERVAL)
 
 
-def _finish_on_close(found: list[Cookie], wanted: set[str]) -> list[Cookie]:
+def _finish_on_close(
+    found: list[Cookie], wanted: set[str], other_domains: dict[str, set[str]]
+) -> list[Cookie]:
     """Decides what a closed window means: done, or gone too early."""
     missing = _missing(wanted, found)
     if missing:
         raise BrowserClosedEarly(
             "The browser closed before these cookies were set: "
             + ", ".join(sorted(missing))
+            + _elsewhere(missing, other_domains)
         )
     return found
 
