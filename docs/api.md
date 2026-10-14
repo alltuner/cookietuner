@@ -65,6 +65,72 @@ for p in profiles:
     print(f"{p.profile_name}: {p.path}")
 ```
 
+## Capture
+
+`capture` opens Google Chrome on a throwaway profile, waits while a person signs
+in, and returns the cookies that session set. It reaches session and HttpOnly
+cookies that never reach disk. The temporary profile is deleted when the capture
+ends, including on timeout, cancellation or error.
+
+### capture
+
+```python
+from cookietuner import Cookie, capture
+
+cookies: list[Cookie] = capture(
+    url="https://example.com/login",
+    domain="example.com",
+    until={"session_id", "csrf_token"},
+    timeout=300,
+    proxy=None,
+)
+```
+
+**Arguments:**
+
+| Argument | Type | Description |
+|----------|------|-------------|
+| `url` | `str` | Page to open, usually a sign-in form |
+| `domain` | `str \| None` | Keep only cookies for exactly this domain (leading dot ignored, subdomains don't match) |
+| `until` | `set[str] \| None` | Cookie names to wait for. Without them, the capture ends when the last window closes |
+| `timeout` | `float` | Seconds before giving up (default `300`) |
+| `proxy` | `str \| None` | Proxy for the browser, e.g. `socks5://127.0.0.1:1080` |
+
+### capture_async
+
+The same thing for an async application. `capture` is a thin wrapper around it,
+so both share one implementation:
+
+```python
+from cookietuner import capture_async
+
+cookies = await capture_async(
+    url="https://example.com/login",
+    domain="example.com",
+    until={"session_id"},
+)
+```
+
+### Errors
+
+All of these subclass `CaptureError`, and the temporary profile is cleaned up
+before any of them is raised:
+
+| Error | Raised when |
+|-------|-------------|
+| `ChromeNotFound` | Google Chrome isn't installed |
+| `CaptureTimeout` | `timeout` passed before the cookies appeared |
+| `BrowserClosedEarly` | Chrome quit, or the window closed, before the cookies appeared |
+
+```python
+from cookietuner import CaptureTimeout, capture
+
+try:
+    cookies = capture(url="https://example.com/login", until={"session_id"})
+except CaptureTimeout as exc:
+    print(f"gave up: {exc}")
+```
+
 ## Safari
 
 ### get_cookies
