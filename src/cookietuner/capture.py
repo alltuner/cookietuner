@@ -113,6 +113,10 @@ class _Chrome:
     async def start(self) -> None:
         request_read, request_write = os.pipe()
         reply_read, reply_write = os.pipe()
+        # Wrapped straight away so our ends are owned by a file object and get
+        # closed even if the launch below fails.
+        requests = os.fdopen(request_write, "wb", 0)
+        replies = os.fdopen(reply_read, "rb", 0)
 
         # pass_fds keeps the descriptor numbers but can't choose them, so a
         # shell moves them onto the 3 and 4 Chrome expects. Leaving the
@@ -146,12 +150,12 @@ class _Chrome:
         reader = asyncio.StreamReader(limit=PIPE_READ_LIMIT)
         self._reader = reader
         await loop.connect_read_pipe(
-            lambda: asyncio.StreamReaderProtocol(reader),
-            os.fdopen(reply_read, "rb", 0),
+            lambda: asyncio.StreamReaderProtocol(reader), replies
         )
+        # FlowControlMixin is what asyncio's own pipe wrappers use to turn a
+        # transport into something StreamWriter can drain.
         transport, protocol = await loop.connect_write_pipe(
-            asyncio.streams.FlowControlMixin,
-            os.fdopen(request_write, "wb", 0),
+            asyncio.streams.FlowControlMixin, requests
         )
         self._writer = asyncio.StreamWriter(transport, protocol, None, loop)
 
@@ -185,25 +189,37 @@ class _Chrome:
         return list(result["cookies"])
 
     async def stop(self) -> None:
-        """Quits Chrome and removes its profile, whatever went before."""
-        if self._process is not None:
-            if self._process.returncode is None:
-                try:
-                    await self._call("Browser.close")
-                except (_BrowserGone, OSError):
-                    pass
+        """Quits Chrome and removes its profile, whatever went before.
+
+        The profile is removed even if quitting fails or this is running in a
+        task that has already been cancelled, because leaving a signed-in
+        profile on disk defeats the point.
+        """
+        try:
+            await self._quit()
+        finally:
+            shutil.rmtree(self._profile, ignore_errors=True)
+            if self._profile.exists():
+                shutil.rmtree(self._profile)
+
+    async def _quit(self) -> None:
+        """Asks Chrome to close, and kills it if it won't."""
+        if self._process is None:
+            return
+        if self._process.returncode is None and self._writer is not None:
             try:
-                async with asyncio.timeout(SHUTDOWN_GRACE):
-                    await self._process.wait()
-            except TimeoutError:
-                self._process.kill()
+                await self._call("Browser.close")
+            except (_BrowserGone, OSError):
+                pass
+        try:
+            async with asyncio.timeout(SHUTDOWN_GRACE):
                 await self._process.wait()
-        if self._writer is not None:
-            self._writer.close()
-        shutil.rmtree(self._profile, ignore_errors=True)
-        if self._profile.exists():
-            # Leaving a signed-in profile on disk defeats the point.
-            shutil.rmtree(self._profile)
+        except TimeoutError:
+            self._process.kill()
+            await self._process.wait()
+        finally:
+            if self._writer is not None:
+                self._writer.close()
 
 
 def _missing(until: set[str], cookies: list[Cookie]) -> set[str]:
