@@ -2,6 +2,8 @@
 # ABOUTME: Verifies exit codes, stream hygiene and messages when a store can't be read
 
 import json
+import subprocess
+import sys
 
 import pytest
 from typer.testing import CliRunner
@@ -14,6 +16,23 @@ from cookietuner.models import Cookie
 runner = CliRunner()
 
 DENIED = "Chrome's profile data is unreadable"
+
+SECRET = "sup3rs3cr3t-cookie-value"
+
+# Crashes inside the CLI, with the secret held only in a frame local. Run in a
+# subprocess because CliRunner catches exceptions before Typer prints them.
+CRASHING_CLI = f"""
+import sys
+from cookietuner import cli
+
+def boom(**kwargs):
+    leaked_cookie_value = {SECRET!r}
+    raise RuntimeError("the capture broke")
+
+cli.capture_cookies = boom
+sys.argv = ["cookietuner", "capture", "--url", "https://example.com/login"]
+cli.app()
+"""
 
 
 def test_cookies_exits_nonzero_when_the_store_is_unreadable(
@@ -157,3 +176,17 @@ def test_capture_reports_a_timeout_without_a_traceback(
     assert result.exit_code == 1
     assert "session_id" in result.stderr
     assert result.stdout.strip() == ""
+
+
+def test_a_crash_does_not_print_cookie_values() -> None:
+    """Tracebacks must not dump frame locals; they hold cookies and crypto keys."""
+    result = subprocess.run(
+        [sys.executable, "-c", CRASHING_CLI],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode != 0
+    assert "the capture broke" in result.stdout + result.stderr
+    assert SECRET not in result.stdout + result.stderr

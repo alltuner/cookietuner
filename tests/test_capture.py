@@ -20,8 +20,11 @@ from cookietuner.capture import (
 from cookietuner.errors import BrowserClosedEarly, CaptureTimeout
 
 PAGE = b"<html><body>signed in</body></html>"
+# Stands in for a person closing the window once they've signed in. The delay
+# is well past one poll, so the test checks the close signal, not the race
+# between a cookie being set and the window vanishing.
 SELF_CLOSING_PAGE = (
-    b"<html><body><script>setTimeout(window.close, 500)</script></body></html>"
+    b"<html><body><script>setTimeout(window.close, 1500)</script></body></html>"
 )
 
 

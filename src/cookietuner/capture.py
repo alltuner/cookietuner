@@ -22,7 +22,7 @@ CHROME_APP_PATHS = [
 ]
 
 # How often we ask the browser for its cookies and its open windows.
-POLL_INTERVAL = 0.5
+POLL_INTERVAL = 0.25
 
 # Chrome's cookie list for a whole profile can exceed asyncio's default 64 KiB.
 PIPE_READ_LIMIT = 16 * 1024 * 1024
@@ -100,7 +100,9 @@ class _Chrome:
     message a NUL-terminated JSON object.
     """
 
-    def __init__(self, chrome: Path, profile: Path, url: str, proxy: str | None):
+    def __init__(
+        self, chrome: Path, profile: Path, url: str, proxy: str | None
+    ) -> None:
         self._chrome = chrome
         self._profile = profile
         self._url = url
@@ -287,30 +289,34 @@ async def capture_async(
 async def _wait_for_cookies(
     browser: _Chrome, domain: str | None, wanted: set[str]
 ) -> list[Cookie]:
-    """Polls the browser until the wanted cookies exist or the window closes."""
+    """Polls the browser until the wanted cookies exist or the window closes.
+
+    Closing the last window makes Chrome tear down the session, and its cookies
+    stop being readable, so each pass takes a snapshot and only then checks
+    whether the window is still there. That leaves the last snapshot as the
+    answer, taken as late as it can be.
+    """
     found: list[Cookie] = []
     seen_a_window = False
 
     while True:
         try:
-            pages = await browser.open_page_count()
-            if pages:
-                seen_a_window = True
-            elif seen_a_window:
-                return _finish_on_close(found, wanted)
-
             found = [
                 cookie
                 for cookie in (to_cookie(raw) for raw in await browser.cookies())
                 if domain is None or domain_matches(cookie.domain, domain)
             ]
+            if wanted and not _missing(wanted, found):
+                return found
+
+            if await browser.open_page_count():
+                seen_a_window = True
+            elif seen_a_window:
+                return _finish_on_close(found, wanted)
         except _BrowserGone as exc:
             if seen_a_window:
                 return _finish_on_close(found, wanted)
             raise BrowserClosedEarly(f"Chrome quit before signing in: {exc}") from exc
-
-        if wanted and not _missing(wanted, found):
-            return found
 
         await asyncio.sleep(POLL_INTERVAL)
 

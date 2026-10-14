@@ -14,7 +14,13 @@ from .capture import capture as capture_cookies
 from .errors import CaptureError, CookieStoreUnreadable
 from .models import Cookie
 
-app = typer.Typer(help="Extract cookies from your browsers", no_args_is_help=True)
+app = typer.Typer(
+    help="Extract cookies from your browsers",
+    no_args_is_help=True,
+    # Frame locals hold cookie values and Chrome's decryption key, so a crash
+    # must not print them.
+    pretty_exceptions_show_locals=False,
+)
 console = Console()
 # Cookie values go to stdout on their own, so everything else goes to stderr
 # and piping straight into a secret store stays safe.
