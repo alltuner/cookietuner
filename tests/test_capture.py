@@ -5,10 +5,8 @@ import asyncio
 import http.server
 import os
 import signal
-import socketserver
 import subprocess
 import tempfile
-import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -18,6 +16,7 @@ import pytest
 from cookietuner.capture import (
     PROFILE_PREFIX,
     _BrowserGone,
+    _Chrome,
     _wait_for_cookies,
     capture,
     capture_async,
@@ -28,6 +27,8 @@ from cookietuner.capture import (
 from cookietuner.conditions import Conditions, Progress, build, join_chunks
 from cookietuner.errors import CaptureIncomplete, CaptureTimeout
 from cookietuner.models import Cookie
+
+from .conftest import KEYBOARD_TIMEOUT, serve
 
 PAGE = b"<html><body>signed in</body></html>"
 # Stands in for a person closing the window once they've signed in. The delay
@@ -144,41 +145,28 @@ class _WaitingToSignInHandler(_SignInHandler):
     login_page = WAITING_TO_SIGN_IN
 
 
-def _serve(handler: type[http.server.BaseHTTPRequestHandler]) -> Iterator[str]:
-    """Serves one handler on a loopback port for the life of a test.
-
-    Threaded, because Chrome opens several connections at once and a serial
-    server would make it wait.
-    """
-    with socketserver.ThreadingTCPServer(("127.0.0.1", 0), handler) as server:
-        server.daemon_threads = True
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        yield f"http://127.0.0.1:{server.server_address[1]}/"
-        server.shutdown()
-
-
 @pytest.fixture
 def login_url() -> Iterator[str]:
     """Serves a page that sets cookies, on a loopback port."""
-    yield from _serve(_Handler)
+    yield from serve(_Handler)
 
 
 @pytest.fixture
 def self_closing_url() -> Iterator[str]:
     """Serves a page whose script closes the window shortly after load."""
-    yield from _serve(_SelfClosingHandler)
+    yield from serve(_SelfClosingHandler)
 
 
 @pytest.fixture
 def sign_in_url() -> Iterator[str]:
     """Serves the anonymous-then-real sign-in, with chunks and a redirect."""
-    yield from _serve(_SignInHandler)
+    yield from serve(_SignInHandler)
 
 
 @pytest.fixture
 def waiting_to_sign_in_url() -> Iterator[str]:
     """Serves the same sign-in page, with nobody signing in on it."""
-    yield from _serve(_WaitingToSignInHandler)
+    yield from serve(_WaitingToSignInHandler)
 
 
 def _leftover_profiles() -> list[Path]:
@@ -727,3 +715,51 @@ def test_a_malformed_condition_is_refused_before_chrome_starts() -> None:
 
     with pytest.raises(ValueError, match="until takes a set"):
         capture(url="https://example.com/login", until="session_id")
+
+
+@pytest.mark.usefixtures("no_leftover_profiles")
+@drives_chrome
+def test_the_window_gives_the_sign_in_page_the_keyboard(keyboard_url: str) -> None:
+    """A window someone can't type into can't be signed in on.
+
+    Chrome leaves the keyboard in the address bar on a window that opens
+    empty, so the capture has to open on the sign-in page itself.
+    """
+    cookies = capture(
+        url=keyboard_url,
+        until=["keyboard"],
+        until_values=["keyboard=page"],
+        timeout=KEYBOARD_TIMEOUT,
+    )
+    assert [c.value for c in cookies if c.name == "keyboard"] == ["page"]
+
+
+@pytest.mark.usefixtures("no_leftover_profiles")
+@drives_chrome
+def test_a_reload_leaves_the_keyboard_on_the_page(keyboard_url: str) -> None:
+    """Reloading is how a just-loaded extension reaches the sign-in page.
+
+    Driving the browser directly, because the reload only happens on the
+    --passwords path and that needs an extension no CI runner has.
+    """
+
+    async def keyboard_after_reload() -> str | None:
+        chrome = chrome_app_path()
+        assert chrome is not None
+        profile = Path(tempfile.mkdtemp(prefix=PROFILE_PREFIX))
+        browser = _Chrome(chrome, profile, keyboard_url, None)
+        try:
+            await browser.start()
+            async with asyncio.timeout(KEYBOARD_TIMEOUT):
+                while not await browser.pages():
+                    await asyncio.sleep(0.1)
+                await browser.reload()
+                while True:
+                    for raw in await browser.cookies():
+                        if raw["name"] == "keyboard":
+                            return str(raw["value"])
+                    await asyncio.sleep(0.25)
+        finally:
+            await browser.stop()
+
+    assert asyncio.run(keyboard_after_reload()) == "page"
