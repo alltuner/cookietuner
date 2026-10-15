@@ -4,7 +4,6 @@
 import asyncio
 import json
 import os
-import shlex
 import shutil
 import tempfile
 from collections.abc import Callable, Iterable
@@ -27,12 +26,6 @@ from .errors import (
 from .models import Cookie
 
 PROFILE_PREFIX = "cookietuner-capture-"
-
-# Extra switches for the Chrome a capture launches, read as a shell-style word
-# list. A capture opens a window for someone to sign in to, so there is nothing
-# to add in normal use; this is the seam the test suite uses to run Chrome
-# headless, where nobody is going to type anything.
-EXTRA_ARGUMENTS_ENV = "COOKIETUNER_CHROME_ARGUMENTS"
 
 # Apple's iCloud Passwords extension, which reaches the Passwords app through a
 # native helper. The helper only talks to these two extension IDs, and Chrome
@@ -206,7 +199,6 @@ def chrome_arguments(
         # Without this, WebRTC can reach the network directly and expose the
         # local address the proxy is there to hide.
         args.append("--force-webrtc-ip-handling-policy=disable_non_proxied_udp")
-    args.extend(shlex.split(os.environ.get(EXTRA_ARGUMENTS_ENV, "")))
     # Chrome takes the URL to open as its one positional argument.
     args.append(url)
     return args
@@ -568,6 +560,9 @@ async def _wait_for_cookies(
     seen_a_window = False
     met_at: float | None = None
 
+    if wanted and on_progress is not None:
+        on_progress(list(progress.pending))
+
     while True:
         try:
             snapshot = [to_cookie(raw) for raw in await browser.cookies()]
@@ -577,7 +572,11 @@ async def _wait_for_cookies(
                 return _finish_on_close(wanted, progress)
             raise CaptureIncomplete(f"Chrome quit before signing in: {exc}") from exc
 
-        _record(snapshot, domains, wanted, progress)
+        # A browser on its way out can report an emptied store rather than
+        # failing outright, and that is exactly the poll a capture ends on, so
+        # it must not replace what the sign-in actually set.
+        if open_pages or snapshot or not progress.cookies:
+            _record(snapshot, domains, wanted, progress)
         _report(wanted, open_pages, on_progress, progress)
 
         if wanted and met_at is None and progress.satisfied:

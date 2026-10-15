@@ -26,10 +26,19 @@ def options(command_name: str) -> list[str]:
     return [flag for flag in flags if flag.startswith("-") and flag != "--help"]
 
 
+def documents(flag: str) -> bool:
+    """Whether the usage docs mention this exact flag.
+
+    Bounded, so --until isn't counted as documented by --until-value, and -d
+    isn't matched inside a word.
+    """
+    return bool(re.search(rf"(?<![\w-]){re.escape(flag)}(?![\w-])", USAGE))
+
+
 @pytest.mark.parametrize("command_name", sorted(COMMANDS))
 def test_every_command_option_is_in_the_usage_docs(command_name: str) -> None:
     """Taken from the command itself, so a new option can't ship undocumented."""
-    undocumented = [flag for flag in options(command_name) if flag not in USAGE]
+    undocumented = [flag for flag in options(command_name) if not documents(flag)]
     assert undocumented == []
 
 

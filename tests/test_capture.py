@@ -16,7 +16,6 @@ from typing import Any
 import pytest
 
 from cookietuner.capture import (
-    EXTRA_ARGUMENTS_ENV,
     PROFILE_PREFIX,
     _BrowserGone,
     _wait_for_cookies,
@@ -314,6 +313,19 @@ def test_a_closed_window_answers_with_the_last_snapshot() -> None:
     assert [c.name for c in cookies] == ["session_id"]
 
 
+def test_a_teardown_that_reads_as_no_cookies_keeps_the_last_snapshot() -> None:
+    """Closing the last window makes Chrome tear the cookie store down.
+
+    If that reads back as an empty list rather than an error, taking it would
+    throw away the sign-in on the very poll that ends the capture.
+    """
+    browser = _FakeBrowser([[raw_cookie("session_id")], []], closes_after=1)
+
+    cookies = wait_on(browser, Conditions())
+
+    assert [c.name for c in cookies] == ["session_id"]
+
+
 def test_a_browser_that_ends_before_the_conditions_hold_is_incomplete() -> None:
     conditions = build(until={"session_id"}, until_values=None, until_url=None)
 
@@ -353,7 +365,12 @@ def test_settling_waits_for_a_cookie_that_arrives_late() -> None:
     assert join_chunks(settled, "auth-token") == "firstsecond"
 
 
-def test_progress_is_reported_only_when_it_changes() -> None:
+def test_progress_opens_with_the_full_list_then_reports_changes() -> None:
+    """Someone watching has to be told what the capture is waiting for.
+
+    The first report comes before any poll, and after that only a change is
+    worth a line.
+    """
     reported: list[list[str]] = []
     browser = _FakeBrowser(
         [[raw_cookie("other")], [raw_cookie("other")], [raw_cookie("session_id")]]
@@ -362,7 +379,17 @@ def test_progress_is_reported_only_when_it_changes() -> None:
 
     wait_on(browser, conditions, on_progress=reported.append)
 
-    assert reported == [[]]
+    assert reported == [["session_id"], []]
+
+
+def test_progress_says_nothing_when_there_is_nothing_to_wait_for() -> None:
+    """With no conditions there is no progress to report, only a closed browser."""
+    reported: list[list[str]] = []
+    browser = _FakeBrowser([[raw_cookie("session_id")]], closes_after=1)
+
+    wait_on(browser, Conditions(), on_progress=reported.append)
+
+    assert reported == []
 
 
 @drives_chrome
@@ -628,12 +655,8 @@ def test_no_unsupported_flag_warning_covers_the_sign_in_page() -> None:
     assert "--test-type" in args
 
 
-def test_extra_switches_are_passed_before_the_url(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Chrome takes the URL positionally, so anything added has to precede it."""
-    monkeypatch.setenv(EXTRA_ARGUMENTS_ENV, "--headless=new --window-size=800,600")
-
+def test_the_url_is_the_last_argument() -> None:
+    """Chrome takes it positionally, so any switch has to go in front of it."""
     args = chrome_arguments(
         chrome=Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
         profile=Path("/tmp/profile"),
@@ -642,12 +665,10 @@ def test_extra_switches_are_passed_before_the_url(
     )
 
     assert args[-1] == "https://example.com/login"
-    assert "--headless=new" in args
-    assert "--window-size=800,600" in args
 
 
-def test_no_extra_switches_by_default() -> None:
-    """A capture needs a window someone can sign in to, so nothing is added."""
+def test_the_browser_a_capture_opens_has_a_window() -> None:
+    """Someone has to sign in to it, so it is never launched headless."""
     args = chrome_arguments(
         chrome=Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
         profile=Path("/tmp/profile"),
