@@ -124,7 +124,7 @@ cookietuner profiles -b chrome
 ## Requirements
 
 - macOS (the tool reads macOS-specific cookie stores).
-- Python 3.14+.
+- Python 3.11+.
 - Chrome and/or Safari.
 
 ## Development
