@@ -1,0 +1,69 @@
+# ABOUTME: Runs the test suite on every Python version the package claims to support.
+# ABOUTME: Browser tests run separately, since they open a real Chrome window.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The matrix exists to catch a change that quietly needs a newer Python than
+  # `requires-python` promises, so it covers every version in the classifiers.
+  matrix:
+    name: python ${{ matrix.python }}
+    # macOS: the package reads macOS cookie stores and refuses to run elsewhere.
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+
+      - name: Run the tests
+        # The runner has no signed-in browser, so the store backends return
+        # nothing and assert that; the Chrome-driving tests are deselected.
+        run: uv run --python ${{ matrix.python }} pytest -m "not browser"
+
+  # Kept apart because these launch Chrome: slower, and the first thing to go
+  # wrong on a runner without a desktop session.
+  browser:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+
+      - name: Check Google Chrome is present
+        run: |
+          app="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          test -x "$app" || { echo "::error::Chrome is missing from the runner"; exit 1; }
+          "$app" --version
+
+      - name: Run the browser tests
+        run: uv run pytest -m browser
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+
+      # The project's own locked ruff, so CI and the pre-commit hook agree.
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Check formatting
+        run: uv run ruff format --check src tests
