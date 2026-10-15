@@ -278,7 +278,7 @@ def capture(
     try:
         session = capture_session(**arguments) if show_identity else None
         cookie_list = (
-            session.cookies if session is not None else capture_cookies(**arguments)
+            capture_cookies(**arguments) if session is None else session.cookies
         )
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc

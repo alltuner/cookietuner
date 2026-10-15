@@ -555,11 +555,11 @@ async def _capture_async(
                 cookies = await _wait_for_cookies(
                     browser, keep, wanted, settle, on_progress, progress
                 )
-                return _session(cookies, user_agent, page, progress)
+                return _session(cookies, user_agent, page, progress.final_url)
         except TimeoutError as exc:
             if progress.settling:
                 # The conditions did hold; only the settle wait ran out.
-                return _session(progress.cookies, user_agent, page, progress)
+                return _session(progress.cookies, user_agent, page, progress.final_url)
             waited_for = (
                 ", ".join(progress.pending) if wanted else "the browser to close"
             )
@@ -579,7 +579,7 @@ def _session(
     cookies: list[Cookie],
     user_agent: str,
     page: dict[str, Any],
-    progress: Progress,
+    final_url: str | None,
 ) -> CapturedSession:
     """Puts the cookies and what the browser said it is into one answer."""
     metadata = page.get("metadata")
@@ -590,7 +590,7 @@ def _session(
         client_hints=client_hints(metadata),
         high_entropy_hints=high_entropy_hints(metadata),
         accept_language=accept_language(languages) if languages else None,
-        final_url=progress.final_url,
+        final_url=final_url,
     )
 
 
