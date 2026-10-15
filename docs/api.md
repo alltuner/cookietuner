@@ -134,9 +134,12 @@ second.
 - **`settle`** keeps polling for that many seconds after the conditions first
   hold, then returns the last snapshot. Late cookies, trailing chunks and
   post-login redirects land in that window. Once the conditions have held, the
-  capture is done settling even if they stop holding.
+  capture is done settling even if they stop holding, and if `timeout` runs out
+  or the browser ends while it is settling it returns what it has rather than
+  failing.
 
-Given no conditions at all, the capture ends when the browser does.
+Given no conditions at all, the capture ends when the browser does, and `settle`
+does nothing: there is nothing for it to settle after.
 
 Malformed conditions raise `ValueError` before Chrome starts, so a typo costs
 nothing.

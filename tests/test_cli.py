@@ -183,6 +183,48 @@ def test_capture_without_conditions_waits_for_the_browser(
     assert "Close the browser" in result.stderr
 
 
+def test_settle_without_a_condition_says_it_does_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An option that quietly does nothing is worse than one that complains."""
+
+    def fake_capture(**kwargs: object) -> list[Cookie]:
+        return []
+
+    monkeypatch.setattr(cli, "capture_cookies", fake_capture)
+
+    result = runner.invoke(
+        app, ["capture", "--url", "https://example.com/login", "--settle", "2"]
+    )
+
+    assert result.exit_code == 0
+    assert "--settle does nothing" in result.stderr
+
+
+def test_settle_with_a_condition_is_not_complained_about(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_capture(**kwargs: object) -> list[Cookie]:
+        return []
+
+    monkeypatch.setattr(cli, "capture_cookies", fake_capture)
+
+    result = runner.invoke(
+        app,
+        [
+            "capture",
+            "--url",
+            "https://example.com/login",
+            "--until",
+            "session_id",
+            "--settle",
+            "2",
+        ],
+    )
+
+    assert "--settle does nothing" not in result.stderr
+
+
 def test_capture_reports_a_timeout_without_a_traceback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

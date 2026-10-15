@@ -219,6 +219,14 @@ def capture(
     messages.print("[cyan]Opening Chrome on a throwaway profile. Sign in there.[/cyan]")
     if not (until or until_value or until_url):
         messages.print("[cyan]Close the browser when you're done.[/cyan]")
+        if settle:
+            # Settling happens after the conditions hold, so with none given
+            # there is nothing for it to wait after. Said out loud, because an
+            # option that quietly does nothing is worse than one that complains.
+            messages.print(
+                "[yellow]--settle does nothing without --until, --until-value "
+                "or --until-url to settle after.[/yellow]"
+            )
     if passwords:
         messages.print(
             "[cyan]The Passwords extension needs pairing again, because the "
