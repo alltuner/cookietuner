@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.2](https://github.com/alltuner/cookietuner/compare/v0.2.1...v0.2.2) (2026-10-15)
+
+
+### Features
+
+* capture cookies from a throwaway Chrome sign-in ([#55](https://github.com/alltuner/cookietuner/issues/55)) ([62ea678](https://github.com/alltuner/cookietuner/commit/62ea678eef60c36d149aed77e554b2f6093a08d3))
+
+
+### Miscellaneous Chores
+
+* **deps:** update astral-sh/setup-uv action to v10.3.0 ([#48](https://github.com/alltuner/cookietuner/issues/48)) ([f7e8a78](https://github.com/alltuner/cookietuner/commit/f7e8a78529b715138c38930c6815b9eaa5c3313b))
+* **deps:** update dependency uv_build to &gt;=0.13.1,&lt;0.14.0 ([#49](https://github.com/alltuner/cookietuner/issues/49)) ([c49517c](https://github.com/alltuner/cookietuner/commit/c49517c3aa8e7db82cb25c65e40401ec50b12932))
+
 ## [0.2.1](https://github.com/alltuner/cookietuner/compare/v0.2.0...v0.2.1) (2026-10-13)
 
 
