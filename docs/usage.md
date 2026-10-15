@@ -333,11 +333,11 @@ uvx cookietuner capture --url https://example.com/login \
 {
   "cookies": [
     {
-      "domain": "127.0.0.1",
+      "domain": "example.com",
       "name": "session_id",
       "value": "s3cr3t",
       "path": "/",
-      "is_secure": false,
+      "is_secure": true,
       "is_httponly": true,
       "is_expired": false
     }
