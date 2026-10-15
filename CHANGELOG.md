@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/alltuner/cookietuner/compare/v0.3.1...v0.3.2) (2026-10-15)
+
+
+### Features
+
+* **capture:** return the browser's identity (user agent, client hints, language) with the cookies ([#68](https://github.com/alltuner/cookietuner/issues/68)) ([e55fdda](https://github.com/alltuner/cookietuner/commit/e55fdda80cfe922245655a7827c382dae223c3c8))
+
 ## [0.3.1](https://github.com/alltuner/cookietuner/compare/v0.3.0...v0.3.1) (2026-10-15)
 
 
