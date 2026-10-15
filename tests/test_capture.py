@@ -717,10 +717,9 @@ def test_a_malformed_condition_is_refused_before_chrome_starts() -> None:
         capture(url="https://example.com/login", until="session_id")
 
 
+@pytest.mark.usefixtures("no_leftover_profiles")
 @drives_chrome
-def test_the_window_gives_the_sign_in_page_the_keyboard(
-    keyboard_url: str, no_leftover_profiles: None
-) -> None:
+def test_the_window_gives_the_sign_in_page_the_keyboard(keyboard_url: str) -> None:
     """A window someone can't type into can't be signed in on.
 
     Chrome leaves the keyboard in the address bar on a window that opens
@@ -735,6 +734,7 @@ def test_the_window_gives_the_sign_in_page_the_keyboard(
     assert [c.value for c in cookies if c.name == "keyboard"] == ["page"]
 
 
+@pytest.mark.usefixtures("no_leftover_profiles")
 @drives_chrome
 def test_a_reload_leaves_the_keyboard_on_the_page(keyboard_url: str) -> None:
     """Reloading is how a just-loaded extension reaches the sign-in page.
@@ -750,10 +750,10 @@ def test_a_reload_leaves_the_keyboard_on_the_page(keyboard_url: str) -> None:
         browser = _Chrome(chrome, profile, keyboard_url, None)
         try:
             await browser.start()
-            while not await browser.pages():
-                await asyncio.sleep(0.1)
-            await browser.reload()
             async with asyncio.timeout(KEYBOARD_TIMEOUT):
+                while not await browser.pages():
+                    await asyncio.sleep(0.1)
+                await browser.reload()
                 while True:
                     for raw in await browser.cookies():
                         if raw["name"] == "keyboard":
