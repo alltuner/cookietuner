@@ -132,12 +132,20 @@ When the cookies you named exist, they're printed and the browser closes.
 
 ### Deciding when a capture is done
 
-Use `--until` for each cookie name you need; it can repeat. Without it, the
-capture ends when you close the last window, and returns everything set for the
-domain:
+A capture finishes once **every** condition you gave holds at the same time.
+Without any condition, it ends when you close the browser, and returns
+everything set for the domains:
 
 ```bash
 uvx cookietuner capture --url https://example.com/login -d example.com
+```
+
+While it waits, it prints what is still outstanding to stderr, updating as each
+condition is met:
+
+```
+Waiting for: session_id, uid!=anon_*, URL */dashboard*
+Waiting for: uid!=anon_*, URL */dashboard*
 ```
 
 `--timeout` caps the wait (300 seconds by default):
@@ -146,6 +154,117 @@ uvx cookietuner capture --url https://example.com/login -d example.com
 uvx cookietuner capture --url https://example.com/login \
   -d example.com --until session_id --timeout 120
 ```
+
+#### A cookie name, or a glob
+
+`--until` takes a cookie name and can repeat. It also accepts a glob, for names
+a site generates per project or per tenant:
+
+```bash
+uvx cookietuner capture --url https://example.com/login \
+  -d example.com --until 'sb-*-auth-token'
+```
+
+Quote the glob, or the shell will try to expand it. The wildcards are `*`, `?`
+and `[seq]`, and matching is case-sensitive.
+
+#### A session cookie that also exists anonymously
+
+Many sites set their session cookie name for anonymous visitors too, with a
+different value. Waiting for the name alone finishes as the sign-in page loads,
+before you have signed in. `--until-value` waits on the value instead:
+
+```bash
+uvx cookietuner capture --url https://example.com/login \
+  -d example.com --until-value 'uid!=anon_*'
+```
+
+`name!=glob` waits until the cookie exists and stops matching; `name=glob` waits
+until it exists and matches. The cookie has to exist either way, so this can't
+be satisfied by it being absent.
+
+#### Chunked cookies
+
+Some auth libraries split a cookie too big for one header into `name.0`,
+`name.1`, … (Supabase's SSR helpers do this above about 4 KB). `--until name`
+matches a complete set as well as a plain cookie, so you ask for the name you
+know:
+
+```bash
+uvx cookietuner capture --url https://example.com/login \
+  -d example.com --until 'sb-*-auth-token' --settle 2 -o json
+```
+
+Nothing in a cookie says how many chunks there will be, so a set counts as
+complete as soon as it has `.0`. That is what `--settle` is for: it keeps
+polling for the given number of seconds after everything holds, so a trailing
+chunk still lands. The cookies come back exactly as the browser had them, in
+chunks; `join_chunks` in the [Python API](api.md#join_chunks) puts the value
+back together.
+
+#### Waiting on a URL
+
+`--until-url` waits for an open page's URL to match a glob, which is often the
+clearest signal that a sign-in finished:
+
+```bash
+uvx cookietuner capture --url https://example.com/login \
+  -d example.com --until-url '*/dashboard*'
+```
+
+With a leading `!` it waits until no open page matches, for a sign-in that
+redirects somewhere you can't predict:
+
+```bash
+uvx cookietuner capture --url https://example.com/login \
+  -d example.com --until-url '!*/login*'
+```
+
+!!! note "URLs are never printed"
+    A sign-in redirect can carry tokens in its query string or fragment, so
+    progress lines and error messages name the pattern you gave, never the
+    page the browser is on.
+
+#### More than one domain
+
+`-d` repeats, for a sign-in that sets cookies on several domains (an SSO hop, or
+a site plus its custom domain). Each cookie keeps its own domain in the output:
+
+```bash
+uvx cookietuner capture --url https://example.com/login \
+  -d example.com -d auth.example.com --until session_id -o json
+```
+
+Without `-d`, every domain the session touched is returned. Matching stays
+exact, as in `cookies`: a subdomain needs naming in full. If a cookie you asked
+for turns up on a domain you didn't name, the error says so instead of just
+running out the clock.
+
+#### Everything at once
+
+```bash
+uvx cookietuner capture --url https://example.com/login \
+  -d example.com -d auth.example.com \
+  --until session_id --until 'sb-*-auth-token' \
+  --until-value 'uid!=anon_*' \
+  --until-url '*/dashboard*' \
+  --settle 2 -o json
+```
+
+### Closing the window, or quitting Chrome
+
+Closing the last window, quitting Chrome with Cmd+Q and Chrome exiting on its
+own all mean the same thing: the capture keeps the last snapshot it took before
+the end, so cookies set during the sign-in aren't lost either way.
+
+If you gave conditions and that snapshot doesn't satisfy them, the capture fails
+with `CaptureIncomplete` (exit code 4) and names what was still outstanding,
+rather than handing you a half-signed-in session. The temporary profile is
+deleted either way.
+
+Exit codes let a script tell the failures apart: 3 timed out, 4 the browser
+ended too early, 5 no Chrome, 6 the profile folder couldn't be read, 7 the
+Passwords extension isn't installed. 2 means an option was wrong.
 
 ### Signing in from the Passwords app
 
@@ -165,6 +284,26 @@ Store identity, which the copy keeps.
 !!! note "Pairing happens every time"
     The profile is new on every capture, so the extension asks to pair with the
     Passwords app each run. That's the cost of leaving nothing behind.
+
+#### The access `--passwords` needs
+
+This is the only part of `capture` that reads your Chrome profile folder, to
+copy the extension out of it. macOS withholds that folder until the program
+running cookietuner has Full Disk Access, and a capture that can't read it fails
+with:
+
+```
+Error: Chrome's profile folder is unreadable: ...
+```
+
+That's `ProfileAccessDenied`, exit code 6. To fix it, open **System Settings >
+Privacy & Security > Full Disk Access** and grant it to the terminal or app
+cookietuner runs under, then try again. It is a different failure from the
+extension simply not being installed (`PasswordsExtensionMissing`, exit code 7),
+which Full Disk Access won't help with.
+
+Capturing without `--passwords` needs no access to the folder at all, so if you
+only need the cookies, drop the flag.
 
 ### Through a proxy
 
@@ -191,6 +330,29 @@ uvx cookietuner capture --url https://example.com/login \
     The profile folder is deleted when the capture ends, whether it succeeded,
     timed out, was interrupted with Ctrl-C or failed. A fresh one is created
     every time, so each capture is a separate sign-in.
+
+### From Python
+
+Everything the command does is available as a function, with the same condition
+syntax behind both. A predicate covers what the flags can't express:
+
+```python
+from cookietuner import capture, join_chunks
+
+cookies = capture(
+    url="https://example.com/login",
+    domains={"example.com", "auth.example.com"},
+    until=lambda cs: any(c.name == "uid" and not c.value.startswith("anon_") for c in cs),
+    until_url="*/dashboard*",
+    settle=2,
+    on_progress=lambda pending: print("waiting for", pending),
+)
+
+token = join_chunks(cookies, "sb-abcdef-auth-token")
+```
+
+See the [API reference](api.md#capture) for every argument, `capture_async`, and
+the exceptions.
 
 ## Listing profiles
 
@@ -226,9 +388,21 @@ Usage: cookietuner capture [OPTIONS]
 
 Options:
   --url TEXT                           Page to open for signing in (required)
-  -d, --domain TEXT                    Keep only this exact domain (leading dot ignored)
-  --until TEXT                         Cookie name to wait for; repeatable. Without
-                                       it, waits for the window to close
+  -d, --domain TEXT                    Keep only these exact domains (leading dot
+                                       ignored); repeatable. Without it, every
+                                       domain is kept
+  --until TEXT                         Cookie name or glob to wait for; repeatable.
+                                       A name also matches a complete chunk set
+                                       (name.0, name.1, ...)
+  --until-value TEXT                   Wait for a cookie's value: name=glob, or
+                                       name!=glob to wait until it stops matching;
+                                       repeatable. The cookie has to exist either way
+  --until-url TEXT                     Wait for an open page's URL to match this
+                                       glob, or, with a leading !, until no page
+                                       matches it
+  --settle FLOAT                       Seconds to keep polling after everything
+                                       asked for is there, so late cookies and
+                                       trailing chunks land [default: 0]
   -o, --output [table|short|line|json] Output format [default: table]
   --timeout FLOAT                      Seconds before giving up [default: 300]
   --passwords                          Load Apple's iCloud Passwords extension, to
@@ -236,6 +410,10 @@ Options:
   --proxy TEXT                         Proxy for the browser, e.g. socks5://127.0.0.1:1080
   --help                               Show this message and exit.
 ```
+
+Exit codes: 0 success, 2 a bad option, 3 timed out, 4 the browser ended before
+the conditions held, 5 no Chrome, 6 Chrome's profile folder couldn't be read,
+7 the iCloud Passwords extension isn't installed, 130 interrupted.
 
 ### profiles
 

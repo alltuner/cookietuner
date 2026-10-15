@@ -46,7 +46,7 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 markers = [
-    "browser: opens a real Chrome window, so it needs a desktop session",
+    "browser: drives a real Chrome, headless on a desktop and windowed in CI",
 ]
 
 [dependency-groups]

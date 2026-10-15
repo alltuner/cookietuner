@@ -3,7 +3,9 @@
 
 import base64
 import hashlib
+import importlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -15,7 +17,29 @@ from cookietuner.capture import (
     passwords_extension_source,
     stage_passwords_extension,
 )
-from cookietuner.errors import PasswordsExtensionMissing
+from cookietuner.errors import PasswordsExtensionMissing, ProfileAccessDenied
+
+# Fetched this way because the package re-exports the capture function over its
+# own module's name, so both `from cookietuner import capture` and monkeypatch's
+# dotted lookup find the function instead of the module these globals live in.
+capture_module = importlib.import_module("cookietuner.capture")
+
+# chmod means nothing to root, so the denial tests can't say anything there.
+_needs_an_unprivileged_user = pytest.mark.skipif(
+    os.geteuid() == 0, reason="running as root, which no permission can stop"
+)
+
+
+def installed_extension() -> Path | None:
+    """The installed extension, or None if it isn't there or can't be read.
+
+    Used to decide whether to skip, so a profile this process may not read
+    doesn't take test collection down with it.
+    """
+    try:
+        return passwords_extension_source()
+    except ProfileAccessDenied:
+        return None
 
 
 def test_the_embedded_key_derives_the_store_extension_id() -> None:
@@ -49,7 +73,7 @@ def test_staging_reports_a_missing_extension(tmp_path: Path) -> None:
 
 
 requires_extension = pytest.mark.skipif(
-    chrome_app_path() is None or passwords_extension_source() is None,
+    chrome_app_path() is None or installed_extension() is None,
     reason="Chrome with the iCloud Passwords extension is not installed",
 )
 
@@ -59,6 +83,72 @@ def test_the_installed_extension_is_found_with_a_manifest() -> None:
     source = passwords_extension_source()
     assert source is not None
     assert (source / "manifest.json").exists()
+
+
+def test_an_absent_profile_means_the_extension_is_not_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(capture_module, "CHROME_BASE_PATH", tmp_path / "nothing-here")
+
+    assert passwords_extension_source() is None
+
+
+@_needs_an_unprivileged_user
+def test_an_unreadable_profile_is_not_a_missing_extension(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The error that sent people looking for an extension they already had.
+
+    macOS can refuse the profile folder outright, which used to come back as
+    "the extension isn't installed", pointing at the wrong fix entirely.
+    """
+    profile = tmp_path / "Default"
+    profile.mkdir()
+    monkeypatch.setattr(capture_module, "CHROME_BASE_PATH", tmp_path)
+    profile.chmod(0o000)
+
+    try:
+        with pytest.raises(ProfileAccessDenied) as caught:
+            passwords_extension_source()
+    finally:
+        profile.chmod(0o700)
+
+    assert "Full Disk Access" in str(caught.value)
+
+
+@_needs_an_unprivileged_user
+def test_an_unreadable_extension_folder_is_a_denial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extensions = tmp_path / "Default" / "Extensions" / PASSWORDS_EXTENSION_ID
+    extensions.mkdir(parents=True)
+    monkeypatch.setattr(capture_module, "CHROME_BASE_PATH", tmp_path)
+    extensions.chmod(0o000)
+
+    try:
+        with pytest.raises(ProfileAccessDenied):
+            passwords_extension_source()
+    finally:
+        extensions.chmod(0o700)
+
+
+@_needs_an_unprivileged_user
+def test_a_manifest_that_cannot_be_read_is_a_denial(tmp_path: Path) -> None:
+    """Listing a folder and reading what's in it are separate permissions.
+
+    Chrome's own profile can be listable while its files are denied, and
+    Path.is_file answers False either way, so staging is where it surfaces.
+    """
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "manifest.json").write_text(json.dumps({"manifest_version": 3}))
+    (source / "manifest.json").chmod(0o000)
+
+    try:
+        with pytest.raises(ProfileAccessDenied):
+            stage_passwords_extension(source, tmp_path / "staged")
+    finally:
+        (source / "manifest.json").chmod(0o600)
 
 
 @pytest.mark.browser

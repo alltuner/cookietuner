@@ -7,6 +7,7 @@ from enum import Enum
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from . import chrome, safari
@@ -145,17 +146,51 @@ def cookies(
     _render(cookie_list, output)
 
 
+def _show_pending(pending: list[str]) -> None:
+    """Reports what a capture is still waiting for, as it changes.
+
+    Escaped, because a glob like ``sb-[0-9]*`` would otherwise read as console
+    markup. No cookie value or live URL ever reaches here.
+    """
+    if pending:
+        messages.print(f"[cyan]Waiting for: {escape(', '.join(pending))}[/cyan]")
+    else:
+        messages.print("[cyan]Everything asked for is there.[/cyan]")
+
+
 @app.command()
 def capture(
     url: str = typer.Option(..., "--url", help="Page to open for signing in"),
-    domain: str | None = typer.Option(
-        None, "--domain", "-d", help="Keep only this exact domain (leading dot ignored)"
+    domain: list[str] = typer.Option(
+        [],
+        "--domain",
+        "-d",
+        help="Keep only these exact domains (leading dot ignored); repeatable. "
+        "Without it, every domain is kept",
     ),
     until: list[str] = typer.Option(
         [],
         "--until",
-        help="Cookie name to wait for; repeatable. Without it, waits for the "
-        "window to close",
+        help="Cookie name or glob to wait for; repeatable. A name also matches "
+        "a complete chunk set (name.0, name.1, ...)",
+    ),
+    until_value: list[str] = typer.Option(
+        [],
+        "--until-value",
+        help="Wait for a cookie's value: name=glob, or name!=glob to wait until "
+        "it stops matching; repeatable. The cookie has to exist either way",
+    ),
+    until_url: str | None = typer.Option(
+        None,
+        "--until-url",
+        help="Wait for an open page's URL to match this glob, or, with a "
+        "leading !, until no page matches it",
+    ),
+    settle: float = typer.Option(
+        0.0,
+        "--settle",
+        help="Seconds to keep polling after everything asked for is there, so "
+        "late cookies and trailing chunks land",
     ),
     output: OutputFormat = typer.Option(
         OutputFormat.table, "--output", "-o", help="Output format"
@@ -176,12 +211,22 @@ def capture(
     Chrome opens on a fresh profile with none of your history or logins. You
     sign in yourself; cookietuner never types or reads your credentials. The
     profile is deleted when the capture ends.
+
+    The capture finishes once every --until, --until-value and --until-url
+    holds at the same time. Without any of them, it finishes when you close the
+    browser.
     """
-    waiting_for = ", ".join(until) if until else "the window to close"
-    messages.print(
-        f"[cyan]Opening Chrome on a throwaway profile. Sign in; waiting for "
-        f"{waiting_for}.[/cyan]"
-    )
+    messages.print("[cyan]Opening Chrome on a throwaway profile. Sign in there.[/cyan]")
+    if not (until or until_value or until_url):
+        messages.print("[cyan]Close the browser when you're done.[/cyan]")
+        if settle:
+            # Settling happens after the conditions hold, so with none given
+            # there is nothing for it to wait after. Said out loud, because an
+            # option that quietly does nothing is worse than one that complains.
+            messages.print(
+                "[yellow]--settle does nothing without --until, --until-value "
+                "or --until-url to settle after.[/yellow]"
+            )
     if passwords:
         messages.print(
             "[cyan]The Passwords extension needs pairing again, because the "
@@ -191,15 +236,21 @@ def capture(
     try:
         cookie_list = capture_cookies(
             url=url,
-            domain=domain,
-            until=set(until) or None,
+            domains=domain,
+            until=set(until),
+            until_values=until_value,
+            until_url=until_url,
+            settle=settle,
             timeout=timeout,
             passwords=passwords,
             proxy=proxy,
+            on_progress=_show_pending,
         )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     except CaptureError as exc:
-        messages.print(f"[red]Error: {exc}[/red]")
-        raise typer.Exit(1) from exc
+        messages.print(f"[red]Error: {escape(str(exc))}[/red]")
+        raise typer.Exit(exc.exit_code) from exc
     except KeyboardInterrupt:
         messages.print("[yellow]Capture cancelled[/yellow]")
         raise typer.Exit(130) from None
