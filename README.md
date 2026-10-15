@@ -48,6 +48,7 @@ When a store can't give you what you need, `cookietuner capture` opens a clean C
 - **Chrome support** — decrypts cookies using macOS Keychain, Chrome 130+ format.
 - **Safari support** — parses the binary cookies format with SameSite detection.
 - **Throwaway sign-in capture** — a fresh Chrome profile, deleted afterwards, for session and HttpOnly cookies that never reach disk.
+- **Sign in from the Passwords app** — optionally loads Apple's iCloud Passwords extension, so nothing is typed.
 - **Multiple output formats** — table, short, line, and JSON.
 - **Domain filtering** — filter by exact domain (`x.com` matches `.x.com`, not `api.x.com` or `dropbox.com`).
 - **Profile selection** — choose which browser profile to read from.
@@ -91,6 +92,10 @@ cookietuner capture --url https://example.com/login \
 
 # Without --until, the capture ends when you close the window
 cookietuner capture --url https://example.com/login -d example.com
+
+# Sign in from the Passwords app instead of typing
+cookietuner capture --url https://example.com/login \
+  -d example.com --until session_id --passwords
 
 # Route the session through a proxy
 cookietuner capture --url https://example.com/login \

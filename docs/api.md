@@ -82,6 +82,7 @@ cookies: list[Cookie] = capture(
     domain="example.com",
     until={"session_id", "csrf_token"},
     timeout=300,
+    passwords=False,
     proxy=None,
 )
 ```
@@ -94,6 +95,7 @@ cookies: list[Cookie] = capture(
 | `domain` | `str \| None` | Keep only cookies for exactly this domain (leading dot ignored, subdomains don't match) |
 | `until` | `set[str] \| None` | Cookie names to wait for. Without them, the capture ends when the last window closes |
 | `timeout` | `float` | Seconds before giving up (default `300`) |
+| `passwords` | `bool` | Load Apple's iCloud Passwords extension, copied from your own Chrome, to sign in from the Passwords app. Pairing is asked for on every capture, because the profile is new |
 | `proxy` | `str \| None` | Proxy for the browser, e.g. `socks5://127.0.0.1:1080` |
 
 ### capture_async
@@ -121,6 +123,7 @@ before any of them is raised:
 | `ChromeNotFound` | Google Chrome isn't installed |
 | `CaptureTimeout` | `timeout` passed before the cookies appeared |
 | `BrowserClosedEarly` | Chrome quit, or the window closed, before the cookies appeared |
+| `PasswordsExtensionMissing` | `passwords=True` but the iCloud Passwords extension isn't installed in Chrome to copy from |
 
 ```python
 from cookietuner import CaptureTimeout, capture

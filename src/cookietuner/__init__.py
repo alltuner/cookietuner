@@ -9,6 +9,7 @@ from .errors import (
     CaptureTimeout,
     ChromeNotFound,
     CookieStoreUnreadable,
+    PasswordsExtensionMissing,
 )
 from .models import Cookie
 
@@ -19,6 +20,7 @@ __all__ = [
     "ChromeNotFound",
     "Cookie",
     "CookieStoreUnreadable",
+    "PasswordsExtensionMissing",
     "capture",
     "capture_async",
     "main",

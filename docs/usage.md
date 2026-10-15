@@ -147,6 +147,25 @@ uvx cookietuner capture --url https://example.com/login \
   -d example.com --until session_id --timeout 120
 ```
 
+### Signing in from the Passwords app
+
+`--passwords` loads Apple's iCloud Passwords extension into the temporary
+profile, so you can sign in from the Passwords app (saved passwords,
+verification codes, passkeys) instead of typing:
+
+```bash
+uvx cookietuner capture --url https://example.com/login \
+  -d example.com --until session_id --passwords
+```
+
+The extension is copied from the one already installed in your own Chrome, so
+install it there first. Its native helper only talks to the extension's Web
+Store identity, which the copy keeps.
+
+!!! note "Pairing happens every time"
+    The profile is new on every capture, so the extension asks to pair with the
+    Passwords app each run. That's the cost of leaving nothing behind.
+
 ### Through a proxy
 
 `--proxy` routes the browser's traffic elsewhere, so the session originates from
@@ -212,6 +231,8 @@ Options:
                                        it, waits for the window to close
   -o, --output [table|short|line|json] Output format [default: table]
   --timeout FLOAT                      Seconds before giving up [default: 300]
+  --passwords                          Load Apple's iCloud Passwords extension, to
+                                       sign in from the Passwords app
   --proxy TEXT                         Proxy for the browser, e.g. socks5://127.0.0.1:1080
   --help                               Show this message and exit.
 ```

@@ -161,6 +161,12 @@ def capture(
         OutputFormat.table, "--output", "-o", help="Output format"
     ),
     timeout: float = typer.Option(300.0, "--timeout", help="Seconds before giving up"),
+    passwords: bool = typer.Option(
+        False,
+        "--passwords",
+        help="Load Apple's iCloud Passwords extension, to sign in from the "
+        "Passwords app instead of typing",
+    ),
     proxy: str | None = typer.Option(
         None, "--proxy", help="Proxy for the browser, e.g. socks5://127.0.0.1:1080"
     ),
@@ -176,6 +182,11 @@ def capture(
         f"[cyan]Opening Chrome on a throwaway profile. Sign in; waiting for "
         f"{waiting_for}.[/cyan]"
     )
+    if passwords:
+        messages.print(
+            "[cyan]The Passwords extension needs pairing again, because the "
+            "profile is new.[/cyan]"
+        )
 
     try:
         cookie_list = capture_cookies(
@@ -183,6 +194,7 @@ def capture(
             domain=domain,
             until=set(until) or None,
             timeout=timeout,
+            passwords=passwords,
             proxy=proxy,
         )
     except CaptureError as exc:

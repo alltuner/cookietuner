@@ -10,11 +10,31 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .chrome import CHROME_BASE_PATH
 from .domain import domain_matches
-from .errors import BrowserClosedEarly, CaptureTimeout, ChromeNotFound
+from .errors import (
+    BrowserClosedEarly,
+    CaptureTimeout,
+    ChromeNotFound,
+    PasswordsExtensionMissing,
+)
 from .models import Cookie
 
 PROFILE_PREFIX = "cookietuner-capture-"
+
+# Apple's iCloud Passwords extension, which reaches the Passwords app through a
+# native helper. The helper only talks to these two extension IDs, and Chrome
+# derives an ID from the SHA256 of the extension's public key, so this key is
+# fixed for this ID and a copy loaded from disk has to carry it to be accepted.
+PASSWORDS_EXTENSION_ID = "pejdijmoenmkgeppbflobdenhhabjlaj"
+PASSWORDS_EXTENSION_KEY = (
+    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAk4xPYZla5XqlDN0PPiLCQAYRqdaR"
+    "06jSl3sntEE5jHoe7XldFqhsdBSp4L8mozwjCwi6z5YtEpTV1L2k4WYmDuiwoH7YKGlQD/Yb"
+    "C8QMcPvGLWOr8WYfXWtECKv0Nx7Tahk8nCIDWgJVm8YmPIDhPv4o5VVrq6aUveCKvTOskHWF"
+    "yRzSTC2VKpzIVX7F65UzqqOmqLfMpo6lfaLcKSC7G6oQLA/wS7hcGZEwZ11si6XWR4o/hDuU"
+    "St6zdacy/sc7H80eH3lMnEmvb6HoB7+KvxfGIU7dqRmhA/w/X0qkiIJYeoo4tZrNxBj7TTLz"
+    "9hnHUbMRwJqsoIU+pkoprgFWDQIDAQAB"
+)
 
 CHROME_APP_PATHS = [
     Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
@@ -39,6 +59,46 @@ def chrome_app_path() -> Path | None:
     return None
 
 
+def passwords_extension_source(profile_name: str = "Default") -> Path | None:
+    """Finds the newest installed copy of Apple's iCloud Passwords extension.
+
+    A fresh profile has no extensions, so the files are taken from the Chrome
+    profile where the person already installed it.
+    """
+    versions = CHROME_BASE_PATH / profile_name / "Extensions" / PASSWORDS_EXTENSION_ID
+    try:
+        installed = sorted(
+            p for p in versions.iterdir() if (p / "manifest.json").is_file()
+        )
+    except OSError:
+        return None
+    return installed[-1] if installed else None
+
+
+def stage_passwords_extension(source: Path, into: Path) -> Path:
+    """Copies the extension and puts its key back, so it keeps its store ID.
+
+    Chrome computes an unpacked extension's ID from its path unless the manifest
+    names a key, and the wrong ID means the native helper refuses to talk to it.
+
+    Raises:
+        PasswordsExtensionMissing: if there's no extension to copy.
+    """
+    manifest_path = source / "manifest.json"
+    if not manifest_path.is_file():
+        raise PasswordsExtensionMissing(
+            f"No iCloud Passwords extension to copy from: {manifest_path}. "
+            "Install it in Chrome first, or capture without --passwords."
+        )
+
+    shutil.copytree(source, into)
+    staged_manifest = into / "manifest.json"
+    manifest = json.loads(staged_manifest.read_text())
+    manifest["key"] = PASSWORDS_EXTENSION_KEY
+    staged_manifest.write_text(json.dumps(manifest))
+    return into
+
+
 def chrome_arguments(
     *,
     chrome: Path,
@@ -51,6 +111,12 @@ def chrome_arguments(
     The DevTools pipe alone makes ``navigator.webdriver`` true, which some
     sign-in pages reject, so blink's AutomationControlled feature is turned
     off to leave an ordinary browser.
+
+    Chrome calls that an unsupported flag and puts a yellow "stability and
+    security will suffer" bar over the page, which is alarming in a window
+    someone is about to type a password into. ``--test-type`` drops the bar.
+    It does not weaken certificate warnings: a self-signed site still hits the
+    interstitial with it set.
     """
     args = [
         str(chrome),
@@ -59,6 +125,7 @@ def chrome_arguments(
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-blink-features=AutomationControlled",
+        "--test-type",
     ]
     if proxy:
         args.append(f"--proxy-server={proxy}")
@@ -161,12 +228,19 @@ class _Chrome:
         )
         self._writer = asyncio.StreamWriter(transport, protocol, None, loop)
 
-    async def _call(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _call(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        session: str | None = None,
+    ) -> Any:
         assert self._reader is not None and self._writer is not None
         self._next_id += 1
         request: dict[str, Any] = {"id": self._next_id, "method": method}
         if params:
             request["params"] = params
+        if session:
+            request["sessionId"] = session
         self._writer.write(json.dumps(request).encode() + b"\0")
         await self._writer.drain()
 
@@ -185,6 +259,26 @@ class _Chrome:
     async def open_page_count(self) -> int:
         targets = await self._call("Target.getTargets")
         return sum(1 for t in targets["targetInfos"] if t["type"] == "page")
+
+    async def load_extension(self, path: Path) -> str:
+        """Installs an unpacked extension and returns the ID Chrome gave it."""
+        result = await self._call("Extensions.loadUnpacked", {"path": str(path)})
+        return str(result["id"])
+
+    async def navigate(self, url: str) -> None:
+        """Points the open window at a URL.
+
+        Used after loading an extension, so its content scripts run on the page
+        the person signs in to rather than only on later navigations.
+        """
+        targets = await self._call("Target.getTargets")
+        pages = [t for t in targets["targetInfos"] if t["type"] == "page"]
+        if not pages:
+            raise _BrowserGone("Chrome has no window to navigate")
+        attached = await self._call(
+            "Target.attachToTarget", {"targetId": pages[0]["targetId"], "flatten": True}
+        )
+        await self._call("Page.navigate", {"url": url}, session=attached["sessionId"])
 
     async def cookies(self) -> list[dict[str, Any]]:
         result = await self._call("Storage.getCookies")
@@ -234,6 +328,7 @@ async def capture_async(
     domain: str | None = None,
     until: set[str] | None = None,
     timeout: float = 300.0,
+    passwords: bool = False,
     proxy: str | None = None,
 ) -> list[Cookie]:
     """Opens a throwaway Chrome window and returns the cookies a sign-in sets.
@@ -250,6 +345,10 @@ async def capture_async(
         until: Cookie names to wait for. Without them, the capture finishes
                when the last window closes.
         timeout: Seconds to wait before giving up.
+        passwords: Load Apple's iCloud Passwords extension, so signing in can
+                   use the Passwords app instead of typing. The profile is new
+                   every time, so expect the extension's pairing step on every
+                   capture.
         proxy: Proxy for the browser's traffic, e.g. ``socks5://host:1080``.
 
     Returns:
@@ -260,6 +359,8 @@ async def capture_async(
         ChromeNotFound: if Google Chrome isn't installed.
         CaptureTimeout: if ``timeout`` passes before the cookies appear.
         BrowserClosedEarly: if the browser quits before they do.
+        PasswordsExtensionMissing: if ``passwords`` is set and the extension
+                                   isn't installed to copy from.
     """
     chrome = chrome_app_path()
     if chrome is None:
@@ -268,13 +369,30 @@ async def capture_async(
             + " and ".join(str(p) for p in CHROME_APP_PATHS)
         )
 
+    extension_source = None
+    if passwords:
+        extension_source = passwords_extension_source()
+        if extension_source is None:
+            raise PasswordsExtensionMissing(
+                "No iCloud Passwords extension found in Chrome's Default "
+                "profile. Install it in Chrome first, or capture without it."
+            )
+
     wanted = set(until or ())
     profile = Path(tempfile.mkdtemp(prefix=PROFILE_PREFIX))
-    browser = _Chrome(chrome, profile, url, proxy)
+    staging = Path(tempfile.mkdtemp(prefix=PROFILE_PREFIX)) if passwords else None
+    # With the extension, the window opens blank and navigates once it's in, so
+    # its content scripts run on the sign-in page itself.
+    browser = _Chrome(chrome, profile, "about:blank" if passwords else url, proxy)
     other_domains: dict[str, set[str]] = {}
 
     try:
         await browser.start()
+        if extension_source is not None and staging is not None:
+            await browser.load_extension(
+                stage_passwords_extension(extension_source, staging / "extension")
+            )
+            await browser.navigate(url)
         try:
             async with asyncio.timeout(timeout):
                 return await _wait_for_cookies(browser, domain, wanted, other_domains)
@@ -285,7 +403,11 @@ async def capture_async(
                 + _elsewhere(wanted, other_domains)
             ) from exc
     finally:
-        await browser.stop()
+        try:
+            await browser.stop()
+        finally:
+            if staging is not None:
+                shutil.rmtree(staging, ignore_errors=True)
 
 
 def _elsewhere(wanted: set[str], other_domains: dict[str, set[str]]) -> str:
@@ -371,9 +493,17 @@ def capture(
     domain: str | None = None,
     until: set[str] | None = None,
     timeout: float = 300.0,
+    passwords: bool = False,
     proxy: str | None = None,
 ) -> list[Cookie]:
     """Blocking version of :func:`capture_async`, for scripts."""
     return asyncio.run(
-        capture_async(url=url, domain=domain, until=until, timeout=timeout, proxy=proxy)
+        capture_async(
+            url=url,
+            domain=domain,
+            until=until,
+            timeout=timeout,
+            passwords=passwords,
+            proxy=proxy,
+        )
     )

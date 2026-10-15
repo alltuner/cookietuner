@@ -20,3 +20,7 @@ class CaptureTimeout(CaptureError):
 
 class BrowserClosedEarly(CaptureError):
     """Chrome quit, or its window closed, before the cookies appeared."""
+
+
+class PasswordsExtensionMissing(CaptureError):
+    """Apple's iCloud Passwords extension isn't installed to copy from."""

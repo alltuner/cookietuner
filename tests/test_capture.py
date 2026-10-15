@@ -244,3 +244,14 @@ def test_the_browser_is_not_flagged_as_automated() -> None:
     )
     assert "--disable-blink-features=AutomationControlled" in args
     assert "--enable-automation" not in args
+
+
+def test_no_unsupported_flag_warning_covers_the_sign_in_page() -> None:
+    """Chrome bars the blink flag as unsupported; the warning must not show."""
+    args = chrome_arguments(
+        chrome=Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        profile=Path("/tmp/profile"),
+        url="https://example.com/login",
+        proxy=None,
+    )
+    assert "--test-type" in args
