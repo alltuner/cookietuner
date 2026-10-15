@@ -316,6 +316,88 @@ uvx cookietuner capture --url https://example.com/login \
   -d example.com --proxy socks5://127.0.0.1:1080
 ```
 
+### Reusing a session somewhere else
+
+Cookies alone are only half of a session. Sites bind one to the browser that
+signed in, and a request that arrives with the right cookies but a different
+user agent is what they look for to spot a stolen one. `--identity` prints the
+browser along with the cookies, so the session can be replayed as the browser
+that opened it:
+
+```bash
+uvx cookietuner capture --url https://example.com/login \
+  -d example.com --until session_id -o json --identity
+```
+
+```json
+{
+  "cookies": [
+    {
+      "domain": "127.0.0.1",
+      "name": "session_id",
+      "value": "s3cr3t",
+      "path": "/",
+      "is_secure": false,
+      "is_httponly": true,
+      "is_expired": false
+    }
+  ],
+  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "client_hints": {
+    "sec-ch-ua": "\"Google Chrome\";v=\"155\", \"Chromium\";v=\"155\", \"Not(A:Brand\";v=\"24\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"macOS\""
+  },
+  "high_entropy_hints": {
+    "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"155.0.8059.79\", \"Chromium\";v=\"155.0.8059.79\", \"Not(A:Brand\";v=\"24.0.0.0\"",
+    "sec-ch-ua-platform-version": "\"27.0.1\"",
+    "sec-ch-ua-arch": "\"arm\"",
+    "sec-ch-ua-bitness": "\"64\"",
+    "sec-ch-ua-model": "\"\""
+  },
+  "accept_language": "en-GB,en-US;q=0.9,en;q=0.8",
+  "final_url": "https://example.com/dashboard"
+}
+```
+
+Without `--identity`, the output stays the plain list of cookies it has always
+been. The identity is only printed as JSON, so `--identity` with a table says
+so and does nothing.
+
+From Python, `capture_session` returns the same thing as a `CapturedSession`,
+and `headers()` gives you the headers that browser sends on its own:
+
+```python
+import requests
+
+from cookietuner import capture_session
+
+session = capture_session(
+    url="https://example.com/login",
+    domains={"example.com"},
+    until={"session_id"},
+)
+
+reuse = requests.Session()
+reuse.headers.update(session.headers())   # user agent, language, sec-ch-ua*
+for cookie in session.cookies:
+    reuse.cookies.set(cookie.name, cookie.value, domain=cookie.domain, path=cookie.path)
+
+reuse.get("https://example.com/api/me")
+```
+
+The client hints come from `navigator.userAgentData`, which a page only has in a
+secure context. A sign-in page on plain `http` has none to give, and is an origin
+Chrome sends no `sec-ch-ua` headers to either, so there the hints come back empty
+and `headers()` is the user agent and the language. The high-entropy hints are
+kept apart because a site only receives those when it asks for them with
+`Accept-CH`.
+
+!!! note "`final_url` can carry a token"
+    A sign-in redirect often puts one in its query string or fragment, so the
+    URL is printed with the cookies on stdout and never in a progress line or
+    an error message.
+
 ### Piping into a secret store
 
 Cookie values go to stdout on their own; progress and errors go to stderr. The
@@ -351,8 +433,8 @@ cookies = capture(
 token = join_chunks(cookies, "sb-abcdef-auth-token")
 ```
 
-See the [API reference](api.md#capture) for every argument, `capture_async`, and
-the exceptions.
+See the [API reference](api.md#capture) for every argument, `capture_async`,
+`capture_session` and the exceptions.
 
 ## Listing profiles
 
@@ -404,6 +486,10 @@ Options:
                                        asked for is there, so late cookies and
                                        trailing chunks land [default: 0]
   -o, --output [table|short|line|json] Output format [default: table]
+  --identity                           Also print the browser's user agent, client
+                                       hints and language, so the session can be
+                                       replayed as the browser that signed in
+                                       (-o json)
   --timeout FLOAT                      Seconds before giving up [default: 300]
   --passwords                          Load Apple's iCloud Passwords extension, to
                                        sign in from the Passwords app

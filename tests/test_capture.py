@@ -7,9 +7,9 @@ import os
 import signal
 import subprocess
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import pytest
 
@@ -20,13 +20,15 @@ from cookietuner.capture import (
     _wait_for_cookies,
     capture,
     capture_async,
+    capture_session,
+    capture_session_async,
     chrome_app_path,
     chrome_arguments,
     to_cookie,
 )
 from cookietuner.conditions import Conditions, Progress, build, join_chunks
 from cookietuner.errors import CaptureIncomplete, CaptureTimeout
-from cookietuner.models import Cookie
+from cookietuner.models import CapturedSession, Cookie
 
 from .conftest import KEYBOARD_TIMEOUT, serve
 
@@ -88,6 +90,18 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 class _SelfClosingHandler(_Handler):
     body = SELF_CLOSING_PAGE
+
+
+class _RecordingHandler(_Handler):
+    """Keeps the headers each request arrived with, as the browser sent them."""
+
+    received: list[dict[str, str]] = []
+
+    def do_GET(self) -> None:
+        type(self).received.append(
+            {name.lower(): value for name, value in self.headers.items()}
+        )
+        super().do_GET()
 
 
 class _SignInHandler(_Handler):
@@ -155,6 +169,13 @@ def login_url() -> Iterator[str]:
 def self_closing_url() -> Iterator[str]:
     """Serves a page whose script closes the window shortly after load."""
     yield from serve(_SelfClosingHandler)
+
+
+@pytest.fixture
+def recording_url() -> Iterator[str]:
+    """Serves the same page, keeping the headers the browser asked with."""
+    _RecordingHandler.received = []
+    yield from serve(_RecordingHandler)
 
 
 @pytest.fixture
@@ -259,16 +280,19 @@ class _FakeBrowser:
         *,
         ends_after: int | None = None,
         closes_after: int | None = None,
+        urls: list[str] | None = None,
     ) -> None:
         """Polls are served in order, the last one standing in for no change.
 
         ``ends_after`` is the poll the DevTools session dies on, as it does
         when Chrome quits. ``closes_after`` leaves Chrome running with no page
-        left, as closing the last window does.
+        left, as closing the last window does. ``urls`` is what its open pages
+        are showing.
         """
         self._polls = polls
         self._ends_after = ends_after
         self._closes_after = closes_after
+        self._urls = ["https://example.com/login"] if urls is None else urls
         self._taken = 0
 
     async def cookies(self) -> list[dict[str, Any]]:
@@ -280,7 +304,7 @@ class _FakeBrowser:
     async def pages(self) -> list[str]:
         if self._closes_after is not None and self._taken > self._closes_after:
             return []
-        return ["https://example.com/login"]
+        return self._urls
 
 
 def wait_on(
@@ -288,8 +312,9 @@ def wait_on(
     conditions: Conditions,
     settle: float = 0.0,
     on_progress: Callable[[list[str]], None] | None = None,
+    progress: Progress | None = None,
 ) -> list[Cookie]:
-    progress = Progress(pending=conditions.describe())
+    progress = progress or Progress(pending=conditions.describe())
     return asyncio.run(
         _wait_for_cookies(
             browser,  # type: ignore[arg-type]
@@ -401,6 +426,34 @@ def test_progress_says_nothing_when_there_is_nothing_to_wait_for() -> None:
     wait_on(browser, Conditions(), on_progress=reported.append)
 
     assert reported == []
+
+
+def test_the_page_the_sign_in_ended_on_is_kept() -> None:
+    """Closing the window leaves no page, so the poll before it is the answer."""
+    progress = Progress()
+
+    wait_on(
+        _FakeBrowser([[raw_cookie("session_id")]], closes_after=1),
+        Conditions(),
+        progress=progress,
+    )
+
+    assert progress.final_url == "https://example.com/login"
+
+
+def test_a_blank_page_is_not_where_a_sign_in_ended() -> None:
+    """Chrome's own blank tabs come and go, so they are not a destination."""
+    progress = Progress()
+
+    wait_on(
+        _FakeBrowser(
+            [[raw_cookie("session_id")]], closes_after=1, urls=["about:blank"]
+        ),
+        Conditions(),
+        progress=progress,
+    )
+
+    assert progress.final_url is None
 
 
 @drives_chrome
@@ -552,6 +605,44 @@ def test_a_name_only_condition_ends_before_anyone_signs_in(
     assert "session_id" not in by_name
 
 
+@drives_chrome
+@pytest.mark.usefixtures("no_leftover_profiles")
+def test_a_captured_session_carries_the_headers_the_site_received(
+    recording_url: str,
+) -> None:
+    """The whole point: the identity has to be the one that signed in.
+
+    Compared against the request the local site actually got, so a hint built
+    the wrong way shows up here rather than on someone else's server.
+    """
+    session = capture_session(
+        url=recording_url, domains={"127.0.0.1"}, until={"session_id"}, timeout=60
+    )
+
+    received = _RecordingHandler.received[0]
+    sent = {name.lower(): value for name, value in session.headers().items()}
+    assert session.user_agent == received["user-agent"]
+    assert sent.items() <= received.items()
+    assert sent.keys() >= {"user-agent", "accept-language", "sec-ch-ua"}
+    assert session.high_entropy_hints["sec-ch-ua-platform-version"]
+    assert session.final_url is not None
+    assert session.final_url.startswith(recording_url)
+    assert {c.name for c in session.cookies} >= {"session_id", "csrf_token"}
+
+
+@drives_chrome
+@pytest.mark.usefixtures("no_leftover_profiles")
+def test_a_session_captured_until_the_window_closed_knows_the_browser(
+    self_closing_url: str,
+) -> None:
+    """The identity is read up front, so closing the window can't lose it."""
+    session = capture_session(url=self_closing_url, domains={"127.0.0.1"}, timeout=60)
+
+    assert session.user_agent
+    assert session.client_hints
+    assert {c.name for c in session.cookies} == {"session_id", "csrf_token"}
+
+
 def _capture_chrome_pid() -> int | None:
     """The browser process of a running capture, not one of its helpers.
 
@@ -570,9 +661,15 @@ def _capture_chrome_pid() -> int | None:
     return None
 
 
+_Captured = TypeVar("_Captured")
+
+
 async def _capture_until_signalled(
-    url: str, how: signal.Signals, **kwargs: Any
-) -> list[Cookie]:
+    url: str,
+    how: signal.Signals,
+    capturing: Callable[..., Awaitable[_Captured]],
+    **kwargs: Any,
+) -> _Captured:
     """Signals the capture's own Chrome once it has what it was waiting for.
 
     Stands in for Cmd+Q (SIGTERM) and for Chrome dying outright (SIGKILL),
@@ -592,7 +689,7 @@ async def _capture_until_signalled(
 
     ender = asyncio.create_task(end_the_browser())
     try:
-        return await capture_async(url=url, on_progress=watch, **kwargs)
+        return await capturing(url=url, on_progress=watch, **kwargs)
     finally:
         ender.cancel()
 
@@ -612,6 +709,7 @@ def test_a_browser_ended_without_closing_keeps_the_sign_in(
         _capture_until_signalled(
             login_url,
             how,
+            capture_async,
             domains={"127.0.0.1"},
             until={"session_id"},
             settle=30,
@@ -620,6 +718,29 @@ def test_a_browser_ended_without_closing_keeps_the_sign_in(
     )
 
     assert {c.name: c.value for c in cookies}["session_id"] == "s3cr3t"
+
+
+@drives_chrome
+@pytest.mark.usefixtures("no_leftover_profiles")
+def test_a_session_captured_until_chrome_quit_knows_the_browser(
+    login_url: str,
+) -> None:
+    """Quitting Chrome outright is the last end path the identity has to survive."""
+    session = asyncio.run(
+        _capture_until_signalled(
+            login_url,
+            signal.SIGTERM,
+            capture_session_async,
+            domains={"127.0.0.1"},
+            until={"session_id"},
+            settle=30,
+            timeout=60,
+        )
+    )
+
+    assert session.user_agent
+    assert session.client_hints
+    assert {c.name: c.value for c in session.cookies}["session_id"] == "s3cr3t"
 
 
 def test_chrome_app_path_is_the_installed_browser() -> None:
@@ -699,13 +820,13 @@ def test_the_browser_a_capture_opens_has_a_window() -> None:
     assert not [a for a in args if "headless" in a]
 
 
-def test_the_blocking_and_async_captures_take_the_same_arguments() -> None:
-    """One is a wrapper around the other, so a new option can't reach only one."""
+def test_every_way_in_takes_the_same_arguments() -> None:
+    """Four entry points over one implementation, so a new option reaches all."""
     import inspect
 
-    assert inspect.signature(capture).parameters == (
-        inspect.signature(capture_async).parameters
-    )
+    options = inspect.signature(capture_async).parameters
+    for entry in (capture, capture_session, capture_session_async):
+        assert inspect.signature(entry).parameters == options, entry.__name__
 
 
 def test_a_malformed_condition_is_refused_before_chrome_starts() -> None:
@@ -763,3 +884,35 @@ def test_a_reload_leaves_the_keyboard_on_the_page(keyboard_url: str) -> None:
             await browser.stop()
 
     assert asyncio.run(keyboard_after_reload()) == "page"
+
+
+@pytest.mark.usefixtures("no_leftover_profiles")
+@drives_chrome
+def test_reading_the_identity_leaves_the_keyboard_on_the_page(
+    keyboard_url: str,
+) -> None:
+    """The identity is read by running JS in the page someone types into.
+
+    Attaching to that page must not take the keyboard off it, or the capture
+    has bought an identity at the cost of the sign-in.
+    """
+    session = capture_session(
+        url=keyboard_url,
+        until=["keyboard"],
+        until_values=["keyboard=page"],
+        timeout=KEYBOARD_TIMEOUT,
+    )
+
+    assert [c.value for c in session.cookies if c.name == "keyboard"] == ["page"]
+    assert session.client_hints
+
+
+def test_a_session_is_what_capture_session_promises() -> None:
+    """The model is the contract, so it comes back whole or not at all."""
+    session = CapturedSession(cookies=[], user_agent="Mozilla/5.0")
+
+    assert session.cookies == []
+    assert session.client_hints == {}
+    assert session.high_entropy_hints == {}
+    assert session.accept_language is None
+    assert session.final_url is None

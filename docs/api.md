@@ -38,6 +38,40 @@ cookie.is_expired  # False
 | `same_site` | `str \| None` | SameSite policy (none, lax, strict) |
 | `is_expired` | `bool` | Computed: whether the cookie has expired |
 
+### CapturedSession
+
+What `capture_session` returns: the cookies, and the browser that signed in.
+
+```python
+from cookietuner import capture_session
+
+session = capture_session(url="https://example.com/login", until={"session_id"})
+
+session.headers()   # {"User-Agent": ..., "Accept-Language": ..., "sec-ch-ua": ...}
+session.cookies     # the same list[Cookie] capture() returns
+```
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cookies` | `list[Cookie]` | Exactly what `capture` would have returned |
+| `user_agent` | `str` | The user agent string this browser sends |
+| `client_hints` | `dict[str, str]` | `sec-ch-ua`, `sec-ch-ua-mobile` and `sec-ch-ua-platform`, as this Chrome sends them |
+| `high_entropy_hints` | `dict[str, str]` | `sec-ch-ua-full-version-list`, `sec-ch-ua-platform-version`, `sec-ch-ua-arch`, `sec-ch-ua-bitness` and `sec-ch-ua-model` |
+| `accept_language` | `str \| None` | The browser's languages, rendered as it renders them: `en-GB,en-US;q=0.9,en;q=0.8` |
+| `final_url` | `str \| None` | The page the capture ended on, which can carry tokens in its query string |
+
+`headers()` returns the headers this browser sends without being asked: the user
+agent, the language and the three low-entropy `sec-ch-ua*` hints. The
+high-entropy ones are left out, because a site only receives those when it asks
+for them with `Accept-CH`; send them yourself if it does.
+
+The hints are read from `navigator.userAgentData`, which only exists in a secure
+context. A sign-in page on plain `http` has none to give, and is an origin Chrome
+sends no `sec-ch-ua` headers to either, so both hint dictionaries come back empty
+and `headers()` leaves them out.
+
 ## Chrome
 
 ### get_cookies
@@ -165,6 +199,54 @@ cookies = await capture_async(
     domains={"example.com", "auth.example.com"},
     until={"sb-*-auth-token"},
     until_url="*/dashboard*",
+    settle=2,
+)
+```
+
+### capture_session
+
+The same capture as `capture`, returning the browser's identity alongside the
+cookies. A session replayed from a browser other than the one that signed in is
+what a site sees as a stolen one, so this is what makes it reusable:
+
+```python
+import requests
+
+from cookietuner import CapturedSession, capture_session
+
+session: CapturedSession = capture_session(
+    url="https://example.com/login",
+    domains={"example.com"},
+    until={"session_id"},
+    until_url="*/dashboard*",
+)
+
+reuse = requests.Session()
+reuse.headers.update(session.headers())
+for cookie in session.cookies:
+    reuse.cookies.set(cookie.name, cookie.value, domain=cookie.domain, path=cookie.path)
+
+reuse.get("https://example.com/api/me")
+```
+
+It takes the same arguments as `capture`, finishes on the same conditions and
+raises the same errors. The identity is read once the window is up and before
+the first poll, so it comes back whichever way the capture ends: the conditions
+holding, the window closing, or Chrome quitting.
+
+Reading it runs one expression in the page the capture opened, which is why it
+is a separate function: `capture` touches that page not at all.
+
+### capture_session_async
+
+The same thing for an async application, with the same arguments:
+
+```python
+from cookietuner import capture_session_async
+
+session = await capture_session_async(
+    url="https://example.com/login",
+    until={"sb-*-auth-token"},
     settle=2,
 )
 ```

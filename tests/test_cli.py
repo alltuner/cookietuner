@@ -19,7 +19,7 @@ from cookietuner.errors import (
     PasswordsExtensionMissing,
     ProfileAccessDenied,
 )
-from cookietuner.models import Cookie
+from cookietuner.models import CapturedSession, Cookie
 
 runner = CliRunner()
 
@@ -41,6 +41,20 @@ cli.capture_cookies = boom
 sys.argv = ["cookietuner", "capture", "--url", "https://example.com/login"]
 cli.app()
 """
+
+
+CAPTURED_SESSION = CapturedSession(
+    cookies=[Cookie(domain="example.com", name="session_id", value="s3cr3t", path="/")],
+    user_agent="Mozilla/5.0 (Macintosh) Chrome/155.0.0.0 Safari/537.36",
+    client_hints={
+        "sec-ch-ua": '"Google Chrome";v="155"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"macOS"',
+    },
+    high_entropy_hints={"sec-ch-ua-arch": '"arm"'},
+    accept_language="en-GB,en;q=0.9",
+    final_url="https://example.com/dashboard?token=t0ps3cr3t",
+)
 
 
 def test_cookies_exits_nonzero_when_the_store_is_unreadable(
@@ -339,3 +353,92 @@ def test_a_crash_does_not_print_cookie_values() -> None:
     assert result.returncode != 0
     assert "the capture broke" in result.stdout + result.stderr
     assert SECRET not in result.stdout + result.stderr
+
+
+def test_identity_prints_the_browser_alongside_the_cookies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One object, so a script gets the session and the browser in one read."""
+    monkeypatch.setattr(cli, "capture_session", lambda **kwargs: CAPTURED_SESSION)
+
+    result = runner.invoke(
+        app,
+        [
+            "capture",
+            "--url",
+            "https://example.com/login",
+            "-o",
+            "json",
+            "--identity",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {
+        "cookies": [
+            {
+                "domain": "example.com",
+                "name": "session_id",
+                "value": "s3cr3t",
+                "path": "/",
+                "is_secure": False,
+                "is_httponly": False,
+                "is_expired": False,
+            }
+        ],
+        "user_agent": CAPTURED_SESSION.user_agent,
+        "client_hints": CAPTURED_SESSION.client_hints,
+        "high_entropy_hints": CAPTURED_SESSION.high_entropy_hints,
+        "accept_language": "en-GB,en;q=0.9",
+        "final_url": "https://example.com/dashboard?token=t0ps3cr3t",
+    }
+    # A sign-in redirect can carry a token, so the URL goes to stdout alone.
+    assert "t0ps3cr3t" not in result.stderr
+
+
+def test_a_session_with_no_cookies_is_still_a_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shape a script reads must not change with the cookies that landed."""
+    empty = CAPTURED_SESSION.model_copy(update={"cookies": []})
+    monkeypatch.setattr(cli, "capture_session", lambda **kwargs: empty)
+
+    result = runner.invoke(
+        app,
+        ["capture", "--url", "https://example.com/login", "-o", "json", "--identity"],
+    )
+
+    assert json.loads(result.stdout)["cookies"] == []
+
+
+def test_without_identity_the_browser_is_never_asked_what_it_is(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reading it runs JS in the sign-in page, so it waits to be asked for."""
+
+    def refuse(**kwargs: object) -> CapturedSession:
+        raise AssertionError("the identity was read without --identity")
+
+    monkeypatch.setattr(cli, "capture_session", refuse)
+    monkeypatch.setattr(cli, "capture_cookies", lambda **kwargs: [])
+
+    result = runner.invoke(
+        app, ["capture", "--url", "https://example.com/login", "-o", "json"]
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "[]"
+
+
+def test_identity_without_json_says_it_does_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An option that quietly does nothing is worse than one that complains."""
+    monkeypatch.setattr(cli, "capture_cookies", lambda **kwargs: [])
+
+    result = runner.invoke(
+        app, ["capture", "--url", "https://example.com/login", "--identity"]
+    )
+
+    assert result.exit_code == 0
+    assert "--identity" in result.stderr

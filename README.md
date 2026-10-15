@@ -50,12 +50,13 @@ When a store can't give you what you need, `cookietuner capture` opens a clean C
 - **Throwaway sign-in capture** — a fresh Chrome profile, deleted afterwards, for session and HttpOnly cookies that never reach disk.
 - **Flexible completion conditions** — finish on cookie names or globs, on a cookie's value, on the page URL, or on your own predicate, with a settle window for cookies that arrive late.
 - **Chunked cookies** — matches a cookie split into `name.0`, `name.1`, … and reassembles it on request.
+- **The browser with the cookies** — optionally returns the user agent, client hints and language of the browser that signed in, so the session can be replayed as it.
 - **Sign in from the Passwords app** — optionally loads Apple's iCloud Passwords extension, so nothing is typed.
 - **Multiple output formats** — table, short, line, and JSON.
 - **Domain filtering** — filter by exact domain (`x.com` matches `.x.com`, not `api.x.com` or `dropbox.com`), several at once when capturing.
 - **Profile selection** — choose which browser profile to read from.
 - **Cookie metadata** — expiration, Secure, HttpOnly, and SameSite flags.
-- **Python API** — `capture` and `capture_async`, with an exception and exit code per failure.
+- **Python API** — `capture`, `capture_session` and their async twins, with an exception and exit code per failure.
 
 ## Usage
 
@@ -103,6 +104,10 @@ cookietuner capture --url https://example.com/login \
 # Route the session through a proxy
 cookietuner capture --url https://example.com/login \
   -d example.com --proxy socks5://127.0.0.1:1080
+
+# Keep the browser's identity too, so the session can be replayed as it
+cookietuner capture --url https://example.com/login \
+  -d example.com --until session_id -o json --identity
 ```
 
 #### Deciding when it's done
@@ -161,6 +166,28 @@ for cookie in cookies:                      # each a Cookie model
     print(cookie.domain, cookie.name, cookie.is_httponly)
 
 token = join_chunks(cookies, "sb-abcdef-auth-token")
+```
+
+Sites bind a session to the browser that signed in, so cookies alone can read as
+stolen somewhere else. `capture_session` returns the browser with them:
+
+```python
+import requests
+
+from cookietuner import capture_session
+
+session = capture_session(
+    url="https://example.com/login",
+    domains={"example.com"},
+    until={"session_id"},
+)
+
+reuse = requests.Session()
+reuse.headers.update(session.headers())   # user agent, language, sec-ch-ua*
+for cookie in session.cookies:
+    reuse.cookies.set(cookie.name, cookie.value, domain=cookie.domain, path=cookie.path)
+
+reuse.get("https://example.com/api/me")
 ```
 
 `until` also takes a predicate (`until=lambda cs: ...`), called on each poll with the cookies that would be returned, for anything the flags can't express. `capture_async` is the same function for an async application.
