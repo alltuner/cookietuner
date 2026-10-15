@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/alltuner/cookietuner/compare/v0.2.3...v0.2.4) (2026-10-15)
+
+
+### CI/CD Changes
+
+* run the test suite on every supported Python version ([#59](https://github.com/alltuner/cookietuner/issues/59)) ([8a56f60](https://github.com/alltuner/cookietuner/commit/8a56f606cff7a7abd574348b04cd1c9f80a2739f))
+
 ## [0.2.3](https://github.com/alltuner/cookietuner/compare/v0.2.2...v0.2.3) (2026-10-15)
 
 
