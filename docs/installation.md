@@ -44,5 +44,5 @@ uv run cookietuner
     cookietuner only works on macOS. It reads browser cookie databases that are specific to macOS file paths and encryption methods.
 
 - macOS
-- Python 3.14+
+- Python 3.11+
 - Chrome and/or Safari browser installed

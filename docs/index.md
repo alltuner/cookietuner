@@ -20,5 +20,5 @@ uvx cookietuner cookies -b chrome -d github.com
 ## Requirements
 
 - macOS (the tool only works on macOS)
-- Python 3.14+
+- Python 3.11+
 - Chrome and/or Safari browser
