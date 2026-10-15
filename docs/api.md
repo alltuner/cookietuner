@@ -78,60 +78,164 @@ ends, including on timeout, cancellation or error.
 from cookietuner import Cookie, capture
 
 cookies: list[Cookie] = capture(
-    url="https://example.com/login",
-    domain="example.com",
-    until={"session_id", "csrf_token"},
-    timeout=300,
-    passwords=False,
-    proxy=None,
+    url: str,
+    domains: Iterable[str] | None = None,
+    until: Iterable[str] | Callable[[list[Cookie]], bool] | None = None,
+    until_values: Iterable[str] | None = None,
+    until_url: str | None = None,
+    settle: float = 0.0,
+    timeout: float = 300.0,
+    passwords: bool = False,
+    proxy: str | None = None,
+    on_progress: Callable[[list[str]], None] | None = None,
 )
 ```
 
-**Arguments:**
+All arguments are keyword-only.
 
-| Argument | Type | Description |
-|----------|------|-------------|
-| `url` | `str` | Page to open, usually a sign-in form |
-| `domain` | `str \| None` | Keep only cookies for exactly this domain (leading dot ignored, subdomains don't match) |
-| `until` | `set[str] \| None` | Cookie names to wait for. Without them, the capture ends when the last window closes |
-| `timeout` | `float` | Seconds before giving up (default `300`) |
-| `passwords` | `bool` | Load Apple's iCloud Passwords extension, copied from your own Chrome, to sign in from the Passwords app. Pairing is asked for on every capture, because the profile is new |
-| `proxy` | `str \| None` | Proxy for the browser, e.g. `socks5://127.0.0.1:1080` |
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `url` | `str` | required | Page to open, usually a sign-in form |
+| `domains` | `Iterable[str] \| None` | `None` | Keep only cookies for exactly these domains (leading dot ignored, subdomains don't match). Every domain is kept when empty |
+| `until` | `Iterable[str] \| Callable \| None` | `None` | Cookie names or globs to wait for, or a predicate |
+| `until_values` | `Iterable[str] \| None` | `None` | Value conditions, each `name=glob` or `name!=glob` |
+| `until_url` | `str \| None` | `None` | Glob an open page's URL must match, or must not when prefixed with `!` |
+| `settle` | `float` | `0.0` | Seconds to keep polling after the conditions first hold |
+| `timeout` | `float` | `300.0` | Seconds before giving up |
+| `passwords` | `bool` | `False` | Load Apple's iCloud Passwords extension, copied from your own Chrome, to sign in from the Passwords app. Pairing is asked for on every capture, because the profile is new. This is the only option that needs access to your Chrome profile folder |
+| `proxy` | `str \| None` | `None` | Proxy for the browser, e.g. `socks5://127.0.0.1:1080` |
+| `on_progress` | `Callable[[list[str]], None] \| None` | `None` | Called with the conditions still outstanding whenever that list changes |
+
+Returns the cookies in effect when the wait finished, exactly as the browser had
+them: a chunked cookie comes back in chunks, and nothing is rewritten.
+
+### When a capture is done
+
+A capture finishes on the first poll where **every** condition given holds at
+once. The browser is asked for its cookies and its open pages four times a
+second.
+
+- **Names** (`until`) match a cookie name, a glob (`*`, `?`, `[seq]`, matched
+  case-sensitively), or a **complete chunk set**: `name.0`, `name.1`, … running
+  from `.0` with no gap. Nothing in a cookie says how many chunks there will be,
+  so a set looks complete as soon as it has `.0`, which is what `settle` is for.
+  Chunks are only ever completed within one domain.
+- **Values** (`until_values`) need the cookie to exist *and* its value to match,
+  or, with `!=`, not to match. The cookie existing is part of the condition
+  either way, so `uid!=anon_*` is not satisfied by `uid` being absent. The name
+  side may be a glob too; the split is on the first `=`, so a pattern may
+  contain more of them.
+- **URL** (`until_url`) matches any open `http`/`https` page. Prefixed with
+  `!`, it waits until none of them matches, which is how you wait to leave a
+  sign-in page. Pages such as `about:blank` and Chrome's own tabs are ignored,
+  so they can't stand in for having arrived or left.
+- **A predicate** (`until` as a callable) is called on each poll with the
+  cookies that would be returned, and covers anything the rest can't express.
+- **`settle`** keeps polling for that many seconds after the conditions first
+  hold, then returns the last snapshot. Late cookies, trailing chunks and
+  post-login redirects land in that window. Once the conditions have held, the
+  capture is done settling even if they stop holding.
+
+Given no conditions at all, the capture ends when the browser does.
+
+Malformed conditions raise `ValueError` before Chrome starts, so a typo costs
+nothing.
+
+### When the browser ends
+
+Closing the last window, quitting Chrome (Cmd+Q) and Chrome exiting on its own
+are all the same thing: the capture answers with the last snapshot it took
+before the end. If conditions were given and that snapshot doesn't satisfy them,
+it raises `CaptureIncomplete` rather than returning a partial session. The
+temporary profile is removed in every case.
 
 ### capture_async
 
-The same thing for an async application. `capture` is a thin wrapper around it,
-so both share one implementation:
+The same thing for an async application, with the same arguments. `capture` is a
+thin wrapper around it, so both share one implementation:
 
 ```python
 from cookietuner import capture_async
 
 cookies = await capture_async(
     url="https://example.com/login",
-    domain="example.com",
-    until={"session_id"},
+    domains={"example.com", "auth.example.com"},
+    until={"sb-*-auth-token"},
+    until_url="*/dashboard*",
+    settle=2,
 )
+```
+
+### join_chunks
+
+Reassembles a cookie an auth library split into `name.0`, `name.1`, … (Supabase's
+SSR helpers do this above about 4 KB). `capture` never rewrites cookies, so this
+is how you get the value back:
+
+```python
+from cookietuner import capture, join_chunks
+
+cookies = capture(url="https://example.com/login", domains={"example.com"})
+token = join_chunks(cookies, "sb-abcdef-auth-token")  # str | None
+```
+
+A cookie named exactly `name` wins over a chunk set. Returns `None` if neither a
+whole cookie nor a complete set is there, and raises `ValueError` if the cookies
+given hold more than one value for `name`, which a capture over several domains
+can produce: filter to one domain first.
+
+### main
+
+The console-script entry point, `cookietuner` on the command line. Calling it
+runs the CLI and exits the process, so a library should call `capture` instead.
+
+```python
+from cookietuner import main
+
+main()
 ```
 
 ### Errors
 
-All of these subclass `CaptureError`, and the temporary profile is cleaned up
-before any of them is raised:
+`CaptureError` is the base class for every capture failure, and the temporary
+profile is cleaned up before any of them is raised. Each carries the exit code
+the CLI reports it with, as `exc.exit_code`, so a script can tell them apart
+without reading messages. Messages name cookies and conditions, never values or
+live URLs.
+
+| Error | Exit code | Raised when |
+|-------|-----------|-------------|
+| `CaptureError` | 1 | Base class; also any capture failure with no more specific type |
+| `CaptureTimeout` | 3 | `timeout` passed before the conditions held; names the unmet ones |
+| `CaptureIncomplete` | 4 | The browser ended before the conditions held |
+| `ChromeNotFound` | 5 | No usable Google Chrome |
+| `ProfileAccessDenied` | 6 | Chrome's profile folder couldn't be read, with a hint about macOS privacy settings. Only `passwords=True` needs it |
+| `PasswordsExtensionMissing` | 7 | The profile was readable but the iCloud Passwords extension isn't installed to copy from |
+
+2 is left alone, because that is what the command line itself exits with when an
+option is wrong.
+
+`CookieStoreUnreadable` is separate, and does not subclass `CaptureError`: it is
+raised by the store readers (`chrome.get_cookies`, `chrome.list_profiles`) when a
+browser's cookie database exists but this process may not read it.
 
 | Error | Raised when |
 |-------|-------------|
-| `ChromeNotFound` | Google Chrome isn't installed |
-| `CaptureTimeout` | `timeout` passed before the cookies appeared |
-| `BrowserClosedEarly` | Chrome quit, or the window closed, before the cookies appeared |
-| `PasswordsExtensionMissing` | `passwords=True` but the iCloud Passwords extension isn't installed in Chrome to copy from |
+| `CookieStoreUnreadable` | A browser's cookie store exists but can't be read |
 
 ```python
-from cookietuner import CaptureTimeout, capture
+from cookietuner import CaptureIncomplete, CaptureTimeout, capture
 
 try:
-    cookies = capture(url="https://example.com/login", until={"session_id"})
+    cookies = capture(
+        url="https://example.com/login",
+        until={"session_id"},
+        timeout=120,
+    )
 except CaptureTimeout as exc:
     print(f"gave up: {exc}")
+except CaptureIncomplete as exc:
+    print(f"browser closed too soon: {exc}")
 ```
 
 ## Safari

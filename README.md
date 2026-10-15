@@ -48,11 +48,14 @@ When a store can't give you what you need, `cookietuner capture` opens a clean C
 - **Chrome support** — decrypts cookies using macOS Keychain, Chrome 130+ format.
 - **Safari support** — parses the binary cookies format with SameSite detection.
 - **Throwaway sign-in capture** — a fresh Chrome profile, deleted afterwards, for session and HttpOnly cookies that never reach disk.
+- **Flexible completion conditions** — finish on cookie names or globs, on a cookie's value, on the page URL, or on your own predicate, with a settle window for cookies that arrive late.
+- **Chunked cookies** — matches a cookie split into `name.0`, `name.1`, … and reassembles it on request.
 - **Sign in from the Passwords app** — optionally loads Apple's iCloud Passwords extension, so nothing is typed.
 - **Multiple output formats** — table, short, line, and JSON.
-- **Domain filtering** — filter by exact domain (`x.com` matches `.x.com`, not `api.x.com` or `dropbox.com`).
+- **Domain filtering** — filter by exact domain (`x.com` matches `.x.com`, not `api.x.com` or `dropbox.com`), several at once when capturing.
 - **Profile selection** — choose which browser profile to read from.
 - **Cookie metadata** — expiration, Secure, HttpOnly, and SameSite flags.
+- **Python API** — `capture` and `capture_async`, with an exception and exit code per failure.
 
 ## Usage
 
@@ -90,7 +93,7 @@ Opens Chrome on a temporary profile with none of your history or logins. You sig
 cookietuner capture --url https://example.com/login \
   -d example.com --until session_id --until csrf_token -o json
 
-# Without --until, the capture ends when you close the window
+# Without any condition, the capture ends when you close the browser
 cookietuner capture --url https://example.com/login -d example.com
 
 # Sign in from the Passwords app instead of typing
@@ -102,6 +105,29 @@ cookietuner capture --url https://example.com/login \
   -d example.com --proxy socks5://127.0.0.1:1080
 ```
 
+#### Deciding when it's done
+
+A capture finishes once every condition you gave holds at the same time. Without any, it ends when you close the browser.
+
+| Option | Waits for |
+|---|---|
+| `--until name` | A cookie name, a glob (`--until 'sb-*-auth-token'`), or a complete chunk set (`name.0`, `name.1`, …). Repeatable |
+| `--until-value 'uid!=anon_*'` | A cookie to exist and its value to match, or with `!=` to stop matching. Repeatable. This is what tells a signed-in session from an anonymous one that reuses the name |
+| `--until-url '*/dashboard*'` | An open page's URL to match; with a leading `!`, for no page to match, so you can wait to leave `/login` |
+| `--settle 2` | Keeps polling for 2 more seconds once everything holds, so late cookies, trailing chunks and post-login redirects land |
+| `--timeout 120` | Caps the whole wait (300 seconds by default) |
+
+`-d` repeats too, for a sign-in that spans domains:
+
+```bash
+cookietuner capture --url https://example.com/login \
+  -d example.com -d auth.example.com \
+  --until 'sb-*-auth-token' --until-value 'uid!=anon_*' \
+  --until-url '*/dashboard*' --settle 2 -o json
+```
+
+Closing the window, quitting Chrome with Cmd+Q and Chrome exiting on its own all mean the same thing: the capture keeps the last snapshot taken before the end. If conditions were given and that snapshot doesn't satisfy them, it fails and names what was missing rather than returning a half-signed-in session. What it's still waiting for is printed to stderr as it goes, and values and live URLs never are.
+
 Cookie values go to stdout on their own and progress goes to stderr, so the output pipes straight into a secret store:
 
 ```bash
@@ -110,6 +136,36 @@ cookietuner capture --url https://example.com/login \
 ```
 
 This reaches cookies a store reader can't: session cookies, cookies kept only in memory, and HttpOnly cookies on a macOS version that denies access to Chrome's own store.
+
+> **Note**
+> `--passwords` is the only option that reads your Chrome profile folder, to copy the extension out of it. macOS withholds that folder until the program running cookietuner has Full Disk Access (System Settings > Privacy & Security), and without it the capture fails with `ProfileAccessDenied`. Capturing without `--passwords` needs no access at all.
+
+### Use from Python
+
+The same capture, as a function, with the same conditions behind both:
+
+```python
+from cookietuner import CaptureTimeout, capture, join_chunks
+
+cookies = capture(
+    url="https://example.com/login",
+    domains={"example.com", "auth.example.com"},
+    until={"sb-*-auth-token"},
+    until_values=["uid!=anon_*"],
+    until_url="*/dashboard*",
+    settle=2,
+    on_progress=lambda pending: print("waiting for", pending),
+)
+
+for cookie in cookies:                      # each a Cookie model
+    print(cookie.domain, cookie.name, cookie.is_httponly)
+
+token = join_chunks(cookies, "sb-abcdef-auth-token")
+```
+
+`until` also takes a predicate (`until=lambda cs: ...`), called on each poll with the cookies that would be returned, for anything the flags can't express. `capture_async` is the same function for an async application.
+
+Failures raise `CaptureTimeout`, `CaptureIncomplete`, `ChromeNotFound`, `ProfileAccessDenied` or `PasswordsExtensionMissing`, all subclasses of `CaptureError`, each carrying the CLI's exit code as `exc.exit_code`. Full signatures, condition semantics and exit codes are in the [API reference](https://cookietuner.alltuner.com/api/).
 
 ### List browser profiles
 

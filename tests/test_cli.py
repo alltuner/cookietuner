@@ -10,7 +10,15 @@ from typer.testing import CliRunner
 
 from cookietuner import chrome, cli
 from cookietuner.cli import app
-from cookietuner.errors import CaptureTimeout, CookieStoreUnreadable
+from cookietuner.errors import (
+    CaptureError,
+    CaptureIncomplete,
+    CaptureTimeout,
+    ChromeNotFound,
+    CookieStoreUnreadable,
+    PasswordsExtensionMissing,
+    ProfileAccessDenied,
+)
 from cookietuner.models import Cookie
 
 runner = CliRunner()
@@ -108,7 +116,7 @@ def test_capture_writes_only_cookies_to_stdout(
     assert "Sign in" in result.stderr
 
 
-def test_capture_passes_the_requested_names_through(
+def test_capture_passes_every_condition_through(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     seen: dict[str, object] = {}
@@ -127,10 +135,18 @@ def test_capture_passes_the_requested_names_through(
             "https://example.com/login",
             "-d",
             "example.com",
+            "-d",
+            "auth.example.com",
             "--until",
             "session_id",
             "--until",
-            "csrf_token",
+            "sb-*-auth-token",
+            "--until-value",
+            "uid!=anon_*",
+            "--until-url",
+            "*/dashboard*",
+            "--settle",
+            "2",
             "--timeout",
             "42",
             "--proxy",
@@ -138,16 +154,19 @@ def test_capture_passes_the_requested_names_through(
         ],
     )
 
-    assert seen["until"] == {"session_id", "csrf_token"}
-    assert seen["domain"] == "example.com"
+    assert seen["until"] == {"session_id", "sb-*-auth-token"}
+    assert seen["domains"] == ["example.com", "auth.example.com"]
+    assert seen["until_values"] == ["uid!=anon_*"]
+    assert seen["until_url"] == "*/dashboard*"
+    assert seen["settle"] == 2.0
     assert seen["timeout"] == 42.0
     assert seen["proxy"] == "socks5://127.0.0.1:1080"
 
 
-def test_capture_without_until_waits_for_the_window(
+def test_capture_without_conditions_waits_for_the_browser(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No --until means the capture ends when the window closes."""
+    """No conditions means the capture ends when the browser does."""
     seen: dict[str, object] = {}
 
     def fake_capture(**kwargs: object) -> list[Cookie]:
@@ -156,9 +175,12 @@ def test_capture_without_until_waits_for_the_window(
 
     monkeypatch.setattr(cli, "capture_cookies", fake_capture)
 
-    runner.invoke(app, ["capture", "--url", "https://example.com/login"])
+    result = runner.invoke(app, ["capture", "--url", "https://example.com/login"])
 
-    assert seen["until"] is None
+    assert seen["until"] == set()
+    assert seen["until_values"] == []
+    assert seen["until_url"] is None
+    assert "Close the browser" in result.stderr
 
 
 def test_capture_reports_a_timeout_without_a_traceback(
@@ -173,9 +195,94 @@ def test_capture_reports_a_timeout_without_a_traceback(
         app, ["capture", "--url", "https://example.com/login", "--until", "session_id"]
     )
 
-    assert result.exit_code == 1
+    assert result.exit_code == CaptureTimeout.exit_code
     assert "session_id" in result.stderr
     assert result.stdout.strip() == ""
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        CaptureTimeout,
+        CaptureIncomplete,
+        ChromeNotFound,
+        ProfileAccessDenied,
+        PasswordsExtensionMissing,
+    ],
+)
+def test_each_capture_failure_has_its_own_exit_code(
+    monkeypatch: pytest.MonkeyPatch, error: type[CaptureError]
+) -> None:
+    """A script should be able to tell these apart without reading messages."""
+
+    def fail(**kwargs: object) -> list[Cookie]:
+        raise error("no good")
+
+    monkeypatch.setattr(cli, "capture_cookies", fail)
+
+    result = runner.invoke(app, ["capture", "--url", "https://example.com/login"])
+
+    assert result.exit_code == error.exit_code
+    # 2 is what the command line itself exits with on a bad option.
+    assert result.exit_code not in (0, 2)
+
+
+def test_exit_codes_are_distinct() -> None:
+    codes = [
+        error.exit_code
+        for error in (
+            CaptureTimeout,
+            CaptureIncomplete,
+            ChromeNotFound,
+            ProfileAccessDenied,
+            PasswordsExtensionMissing,
+        )
+    ]
+    assert len(set(codes)) == len(codes)
+
+
+def test_a_malformed_condition_is_a_usage_error() -> None:
+    """A typo should cost nothing, so it's refused before Chrome opens.
+
+    The real capture runs here: the conditions are parsed first, so this never
+    reaches the browser.
+    """
+    result = runner.invoke(
+        app,
+        [
+            "capture",
+            "--url",
+            "https://example.com/login",
+            "--until-value",
+            "no-separator",
+        ],
+    )
+
+    assert result.exit_code == 2
+
+
+def test_progress_lines_go_to_stderr_and_survive_glob_characters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A glob like sb-[0-9]* would otherwise be eaten as console markup."""
+
+    def report(**kwargs: object) -> list[Cookie]:
+        on_progress = kwargs["on_progress"]
+        assert callable(on_progress)
+        on_progress(["sb-[0-9]*-auth-token", "URL */dashboard*"])
+        return []
+
+    monkeypatch.setattr(cli, "capture_cookies", report)
+
+    result = runner.invoke(
+        app,
+        ["capture", "--url", "https://example.com/login", "--until", "sb-[0-9]*"],
+    )
+
+    assert result.exit_code == 0
+    assert "sb-[0-9]*-auth-token" in result.stderr
+    assert "URL */dashboard*" in result.stderr
+    assert result.stdout.strip() == "[]" or result.stdout.strip() == ""
 
 
 def test_a_crash_does_not_print_cookie_values() -> None:

@@ -6,17 +6,22 @@ import json
 import os
 import shutil
 import tempfile
+from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
+from . import conditions
 from .chrome import CHROME_BASE_PATH
+from .conditions import Conditions, Progress
 from .domain import domain_matches
 from .errors import (
-    BrowserClosedEarly,
+    CaptureIncomplete,
     CaptureTimeout,
     ChromeNotFound,
     PasswordsExtensionMissing,
+    ProfileAccessDenied,
 )
 from .models import Cookie
 
@@ -59,20 +64,74 @@ def chrome_app_path() -> Path | None:
     return None
 
 
+def _profile_access_denied(path: Path, exc: OSError) -> ProfileAccessDenied:
+    """Builds the error for a profile folder macOS won't let us read."""
+    return ProfileAccessDenied(
+        f"Chrome's profile folder is unreadable: {path}: {exc.strerror or exc}. "
+        "macOS withholds it until the program running cookietuner has Full "
+        "Disk Access: grant it in System Settings > Privacy & Security > Full "
+        "Disk Access, to the terminal or app cookietuner runs under. Capturing "
+        "without --passwords needs no access to the folder at all."
+    )
+
+
+def _has_manifest(version: Path) -> bool:
+    """True if this extension version folder holds a manifest.
+
+    ``Path.is_file`` answers False when macOS denies the question, which would
+    make a denial look like a missing extension, so this asks in a way that
+    tells the two apart.
+
+    Raises:
+        ProfileAccessDenied: if the manifest can't be reached.
+    """
+    try:
+        (version / "manifest.json").stat()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise _profile_access_denied(version / "manifest.json", exc) from exc
+    return True
+
+
 def passwords_extension_source(profile_name: str = "Default") -> Path | None:
     """Finds the newest installed copy of Apple's iCloud Passwords extension.
 
     A fresh profile has no extensions, so the files are taken from the Chrome
     profile where the person already installed it.
+
+    Returns:
+        The extension's folder, or None if it isn't installed.
+
+    Raises:
+        ProfileAccessDenied: if Chrome's profile folder can't be read, which is
+                             a different problem from the extension not being
+                             installed.
     """
-    versions = CHROME_BASE_PATH / profile_name / "Extensions" / PASSWORDS_EXTENSION_ID
+    profile = CHROME_BASE_PATH / profile_name
+    versions = profile / "Extensions" / PASSWORDS_EXTENSION_ID
     try:
-        installed = sorted(
-            p for p in versions.iterdir() if (p / "manifest.json").is_file()
-        )
-    except OSError:
+        installed = sorted(p for p in versions.iterdir() if _has_manifest(p))
+    except FileNotFoundError:
+        _require_readable(profile)
         return None
+    except OSError as exc:
+        raise _profile_access_denied(versions, exc) from exc
     return installed[-1] if installed else None
+
+
+def _require_readable(profile: Path) -> None:
+    """Tells a profile that isn't there from one macOS won't let us read.
+
+    Raises:
+        ProfileAccessDenied: if the folder exists but can't be listed.
+    """
+    try:
+        next(iter(profile.iterdir()), None)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise _profile_access_denied(profile, exc) from exc
 
 
 def stage_passwords_extension(source: Path, into: Path) -> Path:
@@ -83,17 +142,25 @@ def stage_passwords_extension(source: Path, into: Path) -> Path:
 
     Raises:
         PasswordsExtensionMissing: if there's no extension to copy.
+        ProfileAccessDenied: if its files are there but can't be read.
     """
-    manifest_path = source / "manifest.json"
-    if not manifest_path.is_file():
+    if not _has_manifest(source):
         raise PasswordsExtensionMissing(
-            f"No iCloud Passwords extension to copy from: {manifest_path}. "
-            "Install it in Chrome first, or capture without --passwords."
+            f"No iCloud Passwords extension to copy from: "
+            f"{source / 'manifest.json'}. Install it in Chrome first, or "
+            "capture without --passwords."
         )
 
-    shutil.copytree(source, into)
     staged_manifest = into / "manifest.json"
-    manifest = json.loads(staged_manifest.read_text())
+    try:
+        shutil.copytree(source, into)
+        manifest = json.loads(staged_manifest.read_text())
+    except OSError as exc:
+        # macOS can allow listing a folder while denying the files in it, so a
+        # manifest we could stat above is no promise the copy will work.
+        # shutil.Error, which copytree raises for a per-file failure, is an
+        # OSError too.
+        raise _profile_access_denied(source, exc) from exc
     manifest["key"] = PASSWORDS_EXTENSION_KEY
     staged_manifest.write_text(json.dumps(manifest))
     return into
@@ -241,13 +308,19 @@ class _Chrome:
             request["params"] = params
         if session:
             request["sessionId"] = session
-        self._writer.write(json.dumps(request).encode() + b"\0")
-        await self._writer.drain()
+        # A Chrome that has gone takes both ends of the pipe with it, and the
+        # write is where that shows first: asking a dead browser for cookies
+        # raises ConnectionResetError here, not on the read below.
+        try:
+            self._writer.write(json.dumps(request).encode() + b"\0")
+            await self._writer.drain()
+        except OSError as exc:
+            raise _BrowserGone("Chrome closed the DevTools pipe") from exc
 
         while True:
             try:
                 raw = await self._reader.readuntil(b"\0")
-            except (asyncio.IncompleteReadError, BrokenPipeError) as exc:
+            except (asyncio.IncompleteReadError, OSError) as exc:
                 raise _BrowserGone("Chrome closed the DevTools pipe") from exc
             message = json.loads(raw[:-1])
             if message.get("id") != self._next_id:
@@ -256,9 +329,10 @@ class _Chrome:
                 raise _BrowserGone(message["error"].get("message", method))
             return message["result"]
 
-    async def open_page_count(self) -> int:
+    async def pages(self) -> list[str]:
+        """The URL each open page is showing, one call for count and contents."""
         targets = await self._call("Target.getTargets")
-        return sum(1 for t in targets["targetInfos"] if t["type"] == "page")
+        return [t.get("url", "") for t in targets["targetInfos"] if t["type"] == "page"]
 
     async def load_extension(self, path: Path) -> str:
         """Installs an unpacked extension and returns the ID Chrome gave it."""
@@ -318,18 +392,18 @@ class _Chrome:
                 self._writer.close()
 
 
-def _missing(until: set[str], cookies: list[Cookie]) -> set[str]:
-    return until - {cookie.name for cookie in cookies}
-
-
 async def capture_async(
     *,
     url: str,
-    domain: str | None = None,
-    until: set[str] | None = None,
+    domains: Iterable[str] | None = None,
+    until: Iterable[str] | Callable[[list[Cookie]], bool] | None = None,
+    until_values: Iterable[str] | None = None,
+    until_url: str | None = None,
+    settle: float = 0.0,
     timeout: float = 300.0,
     passwords: bool = False,
     proxy: str | None = None,
+    on_progress: Callable[[list[str]], None] | None = None,
 ) -> list[Cookie]:
     """Opens a throwaway Chrome window and returns the cookies a sign-in sets.
 
@@ -337,31 +411,58 @@ async def capture_async(
     ``url`` and waits for the person to sign in by hand. cookietuner never
     types, fills or reads credentials.
 
+    The capture finishes on the first poll where every condition given holds at
+    once. Without any condition, it finishes when the browser does.
+
     Args:
         url: Page to open, usually a sign-in form.
-        domain: Only return cookies set for exactly this domain, matched the
-                same way as ``cookies`` (a leading dot is ignored, subdomains
-                don't match).
-        until: Cookie names to wait for. Without them, the capture finishes
-               when the last window closes.
+        domains: Only return cookies set for exactly these domains, matched the
+                 same way as ``cookies`` (a leading dot is ignored, subdomains
+                 don't match). Every domain is returned when this is empty.
+        until: Cookie names to wait for, as names or globs. A name is also
+               matched by a complete chunk set (``name.0``, ``name.1``, …).
+               Alternatively a predicate, called on each poll with the cookies
+               that would be returned.
+        until_values: Cookie value conditions, each ``name=glob`` or
+                      ``name!=glob``. The cookie has to exist either way, which
+                      is what tells a signed-in session from an anonymous one
+                      that reuses the name.
+        until_url: Glob an open page's URL must match, or, prefixed with ``!``,
+                   must not: ``"!*/login*"`` waits until the sign-in page is
+                   left.
+        settle: Seconds to keep polling after the conditions first hold,
+                returning the last snapshot. Late cookies, trailing chunks and
+                post-login redirects land in that window.
         timeout: Seconds to wait before giving up.
         passwords: Load Apple's iCloud Passwords extension, so signing in can
                    use the Passwords app instead of typing. The profile is new
                    every time, so expect the extension's pairing step on every
                    capture.
         proxy: Proxy for the browser's traffic, e.g. ``socks5://host:1080``.
+        on_progress: Called with the conditions still outstanding, as a list of
+                     short descriptions, whenever that list changes. Values and
+                     live URLs are never part of it.
 
     Returns:
         The cookies in effect when the wait finished, including HttpOnly and
-        session cookies that never reach disk.
+        session cookies that never reach disk, exactly as the browser had them.
+        A chunked cookie comes back in chunks; :func:`join_chunks` reassembles
+        one.
 
     Raises:
+        ValueError: if a condition is malformed. Checked before Chrome starts.
         ChromeNotFound: if Google Chrome isn't installed.
-        CaptureTimeout: if ``timeout`` passes before the cookies appear.
-        BrowserClosedEarly: if the browser quits before they do.
+        CaptureTimeout: if ``timeout`` passes before the conditions hold.
+        CaptureIncomplete: if the browser ends before they do.
+        ProfileAccessDenied: if ``passwords`` is set and Chrome's profile
+                             folder can't be read.
         PasswordsExtensionMissing: if ``passwords`` is set and the extension
                                    isn't installed to copy from.
     """
+    wanted = conditions.build(
+        until=until, until_values=until_values, until_url=until_url
+    )
+
     chrome = chrome_app_path()
     if chrome is None:
         raise ChromeNotFound(
@@ -378,13 +479,15 @@ async def capture_async(
                 "profile. Install it in Chrome first, or capture without it."
             )
 
-    wanted = set(until or ())
+    keep = frozenset(domains or ())
     profile = Path(tempfile.mkdtemp(prefix=PROFILE_PREFIX))
     staging = Path(tempfile.mkdtemp(prefix=PROFILE_PREFIX)) if passwords else None
     # With the extension, the window opens blank and navigates once it's in, so
     # its content scripts run on the sign-in page itself.
     browser = _Chrome(chrome, profile, "about:blank" if passwords else url, proxy)
-    other_domains: dict[str, set[str]] = {}
+    # Seeded with every condition, so a timeout before the first poll still
+    # says what the capture was waiting for.
+    progress = Progress(pending=wanted.describe())
 
     try:
         await browser.start()
@@ -395,12 +498,19 @@ async def capture_async(
             await browser.navigate(url)
         try:
             async with asyncio.timeout(timeout):
-                return await _wait_for_cookies(browser, domain, wanted, other_domains)
+                return await _wait_for_cookies(
+                    browser, keep, wanted, settle, on_progress, progress
+                )
         except TimeoutError as exc:
-            waited_for = ", ".join(sorted(wanted)) if wanted else "the window to close"
+            if progress.settling:
+                # The conditions did hold; only the settle wait ran out.
+                return progress.cookies
+            waited_for = (
+                ", ".join(progress.pending) if wanted else "the browser to close"
+            )
             raise CaptureTimeout(
                 f"Timed out after {timeout:g}s waiting for {waited_for}"
-                + _elsewhere(wanted, other_domains)
+                + _elsewhere(progress)
             ) from exc
     finally:
         try:
@@ -410,16 +520,15 @@ async def capture_async(
                 shutil.rmtree(staging, ignore_errors=True)
 
 
-def _elsewhere(wanted: set[str], other_domains: dict[str, set[str]]) -> str:
+def _elsewhere(progress: Progress) -> str:
     """Points at cookies that did arrive, but on a domain that wasn't asked for.
 
     Domains don't match by subdomain, so asking for ``example.com`` when the
     cookie lands on ``www.example.com`` otherwise just waits out the clock.
     """
     sightings = [
-        f"{name} on {', '.join(sorted(other_domains[name]))}"
-        for name in sorted(wanted)
-        if other_domains.get(name)
+        f"{name} on {', '.join(sorted(domains))}"
+        for name, domains in sorted(progress.elsewhere.items())
     ]
     if not sightings:
         return ""
@@ -432,78 +541,125 @@ def _elsewhere(wanted: set[str], other_domains: dict[str, set[str]]) -> str:
 
 async def _wait_for_cookies(
     browser: _Chrome,
-    domain: str | None,
-    wanted: set[str],
-    other_domains: dict[str, set[str]],
+    domains: frozenset[str],
+    wanted: Conditions,
+    settle: float,
+    on_progress: Callable[[list[str]], None] | None,
+    progress: Progress,
 ) -> list[Cookie]:
-    """Polls the browser until the wanted cookies exist or the window closes.
+    """Polls the browser until the conditions hold or it goes away.
 
     Closing the last window makes Chrome tear down the session, and its cookies
     stop being readable, so each pass takes a snapshot and only then checks
-    whether the window is still there. That leaves the last snapshot as the
-    answer, taken as late as it can be.
-
-    Wanted cookies seen on some other domain are recorded in ``other_domains``,
-    so a fruitless wait can say where they went.
+    whether a window is still there. That leaves the last snapshot as the
+    answer, taken as late as it can be, and it lives on ``progress`` so that a
+    browser which vanishes mid-poll doesn't take it down.
     """
-    found: list[Cookie] = []
+    loop = asyncio.get_running_loop()
     seen_a_window = False
+    met_at: float | None = None
 
     while True:
         try:
-            found = []
-            for cookie in (to_cookie(raw) for raw in await browser.cookies()):
-                if domain is None or domain_matches(cookie.domain, domain):
-                    found.append(cookie)
-                elif cookie.name in wanted:
-                    other_domains.setdefault(cookie.name, set()).add(cookie.domain)
-
-            if wanted and not _missing(wanted, found):
-                return found
-
-            if await browser.open_page_count():
-                seen_a_window = True
-            elif seen_a_window:
-                return _finish_on_close(found, wanted, other_domains)
+            snapshot = [to_cookie(raw) for raw in await browser.cookies()]
+            open_pages = await browser.pages()
         except _BrowserGone as exc:
             if seen_a_window:
-                return _finish_on_close(found, wanted, other_domains)
-            raise BrowserClosedEarly(f"Chrome quit before signing in: {exc}") from exc
+                return _finish_on_close(wanted, progress)
+            raise CaptureIncomplete(f"Chrome quit before signing in: {exc}") from exc
+
+        _record(snapshot, domains, wanted, progress)
+        _report(wanted, open_pages, on_progress, progress)
+
+        if wanted and met_at is None and progress.satisfied:
+            met_at = loop.time()
+            progress.settling = True
+        if met_at is not None and loop.time() - met_at >= settle:
+            return progress.cookies
+
+        if open_pages:
+            seen_a_window = True
+        elif seen_a_window:
+            return _finish_on_close(wanted, progress)
 
         await asyncio.sleep(POLL_INTERVAL)
 
 
-def _finish_on_close(
-    found: list[Cookie], wanted: set[str], other_domains: dict[str, set[str]]
-) -> list[Cookie]:
-    """Decides what a closed window means: done, or gone too early."""
-    missing = _missing(wanted, found)
-    if missing:
-        raise BrowserClosedEarly(
-            "The browser closed before these cookies were set: "
-            + ", ".join(sorted(missing))
-            + _elsewhere(missing, other_domains)
-        )
-    return found
+def _record(
+    snapshot: list[Cookie],
+    domains: frozenset[str],
+    wanted: Conditions,
+    progress: Progress,
+) -> None:
+    """Keeps the cookies for the asked-for domains, and notes where the rest went.
+
+    A wanted name seen on a domain nobody asked for is remembered, so a
+    fruitless wait can say so instead of just running out of time.
+    """
+    patterns = wanted.name_patterns()
+    kept: list[Cookie] = []
+    for cookie in snapshot:
+        if not domains or any(domain_matches(cookie.domain, d) for d in domains):
+            kept.append(cookie)
+        elif any(fnmatchcase(cookie.name, pattern) for pattern in patterns):
+            progress.elsewhere.setdefault(cookie.name, set()).add(cookie.domain)
+    progress.cookies = kept
+
+
+def _report(
+    wanted: Conditions,
+    open_pages: list[str],
+    on_progress: Callable[[list[str]], None] | None,
+    progress: Progress,
+) -> None:
+    """Re-reads the conditions, and says so when what's outstanding changes."""
+    pending = wanted.pending(progress.cookies, open_pages)
+    changed = pending != progress.pending
+    progress.pending = pending
+    if changed and on_progress is not None:
+        on_progress(pending)
+
+
+def _finish_on_close(wanted: Conditions, progress: Progress) -> list[Cookie]:
+    """Decides what the browser ending means: done, or ended too early.
+
+    Closing the last window, quitting Chrome and Chrome exiting on its own all
+    arrive here, and all answer with the last snapshot taken before the end.
+    """
+    if not wanted or progress.settling or progress.satisfied:
+        return progress.cookies
+    raise CaptureIncomplete(
+        "The browser closed before the capture was done, still waiting for: "
+        + ", ".join(progress.pending)
+        + _elsewhere(progress)
+    )
 
 
 def capture(
     *,
     url: str,
-    domain: str | None = None,
-    until: set[str] | None = None,
+    domains: Iterable[str] | None = None,
+    until: Iterable[str] | Callable[[list[Cookie]], bool] | None = None,
+    until_values: Iterable[str] | None = None,
+    until_url: str | None = None,
+    settle: float = 0.0,
     timeout: float = 300.0,
     passwords: bool = False,
     proxy: str | None = None,
+    on_progress: Callable[[list[str]], None] | None = None,
 ) -> list[Cookie]:
     """Blocking version of :func:`capture_async`, for scripts."""
     return asyncio.run(
         capture_async(
             url=url,
-            domain=domain,
+            domains=domains,
             until=until,
+            until_values=until_values,
+            until_url=until_url,
+            settle=settle,
             timeout=timeout,
             passwords=passwords,
             proxy=proxy,
+            on_progress=on_progress,
         )
     )
