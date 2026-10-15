@@ -340,20 +340,20 @@ class _Chrome:
         result = await self._call("Extensions.loadUnpacked", {"path": str(path)})
         return str(result["id"])
 
-    async def navigate(self, url: str) -> None:
-        """Points the open window at a URL.
+    async def reload(self) -> None:
+        """Loads the open page again, so a just-loaded extension runs on it.
 
-        Used after loading an extension, so its content scripts run on the page
-        the person signs in to rather than only on later navigations.
+        Content scripts are injected as a page loads, so an extension that
+        arrives after the window is up only reaches the next load.
         """
         targets = await self._call("Target.getTargets")
         pages = [t for t in targets["targetInfos"] if t["type"] == "page"]
         if not pages:
-            raise _BrowserGone("Chrome has no window to navigate")
+            raise _BrowserGone("Chrome has no window to reload")
         attached = await self._call(
             "Target.attachToTarget", {"targetId": pages[0]["targetId"], "flatten": True}
         )
-        await self._call("Page.navigate", {"url": url}, session=attached["sessionId"])
+        await self._call("Page.reload", session=attached["sessionId"])
 
     async def cookies(self) -> list[dict[str, Any]]:
         result = await self._call("Storage.getCookies")
@@ -483,9 +483,11 @@ async def capture_async(
     keep = frozenset(domains or ())
     profile = Path(tempfile.mkdtemp(prefix=PROFILE_PREFIX))
     staging = Path(tempfile.mkdtemp(prefix=PROFILE_PREFIX)) if passwords else None
-    # With the extension, the window opens blank and navigates once it's in, so
-    # its content scripts run on the sign-in page itself.
-    browser = _Chrome(chrome, profile, "about:blank" if passwords else url, proxy)
+    # Always opened on the sign-in page itself, extension or not: Chrome leaves
+    # the keyboard in the address bar on a window that opens empty, and
+    # navigating afterwards doesn't move it onto the page, so what the person
+    # types never reaches the form.
+    browser = _Chrome(chrome, profile, url, proxy)
     # Seeded with every condition, so a timeout before the first poll still
     # says what the capture was waiting for.
     progress = Progress(pending=wanted.describe())
@@ -496,7 +498,9 @@ async def capture_async(
             await browser.load_extension(
                 stage_passwords_extension(extension_source, staging / "extension")
             )
-            await browser.navigate(url)
+            # The page was already up when the extension arrived, so it has to
+            # load again for the extension's content scripts to run on it.
+            await browser.reload()
         try:
             async with asyncio.timeout(timeout):
                 return await _wait_for_cookies(

@@ -12,9 +12,9 @@ from .models import Cookie
 # expect the browser to hand all of them back together.
 CHUNKED = re.compile(r"^(?P<base>.+)\.(?P<index>\d+)$")
 
-# A URL condition only looks at pages someone could have signed in on. The
-# --passwords flow opens about:blank, and Chrome's own tabs come and go; both
-# would otherwise satisfy "has left the login page".
+# A URL condition only looks at pages someone could have signed in on, since
+# Chrome's own tabs and blank windows come and go and would otherwise satisfy
+# "has left the login page".
 PAGE_SCHEMES = ("http://", "https://")
 
 

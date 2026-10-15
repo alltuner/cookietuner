@@ -1,8 +1,11 @@
 # ABOUTME: Shared pytest setup for the cookietuner test suite
-# ABOUTME: Decides whether the Chrome-driving tests open a window or run headless
+# ABOUTME: Decides whether Chrome opens a window, and serves the pages tests use
 
+import http.server
 import importlib
 import os
+import socketserver
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -53,3 +56,54 @@ def chrome_window(
 
         monkeypatch.setattr(capture_module, "chrome_arguments", headless)
     yield
+
+
+# What a capture is for is someone typing a password into the window, so the
+# page has to be given the keyboard. It reports that the only way it can see
+# it, and the report is sticky: a desktop can take focus away again, and what
+# matters is that the window handed the page the keyboard at all.
+KEYBOARD_PAGE = b"""<html><body>sign in
+<script>
+  setInterval(() => {
+    if (document.hasFocus()) document.cookie = "keyboard=page; Path=/";
+  }, 100);
+</script>
+</body></html>"""
+
+
+class _KeyboardHandler(http.server.BaseHTTPRequestHandler):
+    """Serves the page that reports whether it got the keyboard."""
+
+    def do_GET(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(KEYBOARD_PAGE)))
+        self.end_headers()
+        self.wfile.write(KEYBOARD_PAGE)
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+def serve(handler: type[http.server.BaseHTTPRequestHandler]) -> Iterator[str]:
+    """Serves one handler on a loopback port for the life of a test.
+
+    Threaded, because Chrome opens several connections at once and a serial
+    server would make it wait.
+    """
+    with socketserver.ThreadingTCPServer(("127.0.0.1", 0), handler) as server:
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        yield f"http://127.0.0.1:{server.server_address[1]}/"
+        server.shutdown()
+
+
+# Long enough for a cold Chrome on a loaded CI runner, short enough that a
+# window which never gives the page the keyboard fails without a long wait.
+KEYBOARD_TIMEOUT = 30.0
+
+
+@pytest.fixture
+def keyboard_url() -> Iterator[str]:
+    """Serves a page that sets ``keyboard=page`` once it has the keyboard."""
+    yield from serve(_KeyboardHandler)

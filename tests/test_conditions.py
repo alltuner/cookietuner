@@ -171,7 +171,7 @@ def test_an_empty_url_condition_is_rejected() -> None:
 
 
 def test_only_http_pages_count_towards_a_url_condition() -> None:
-    """The --passwords flow starts on about:blank, which has left no login page."""
+    """A blank window or one of Chrome's own pages has left no login page."""
     conditions = build(until=None, until_values=None, until_url="!*/login*")
     assert conditions.pending([], ["about:blank"]) == ["URL not */login*"]
     assert conditions.pending([], ["chrome://new-tab-page"]) == ["URL not */login*"]

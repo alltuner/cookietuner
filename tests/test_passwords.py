@@ -13,11 +13,14 @@ import pytest
 from cookietuner.capture import (
     PASSWORDS_EXTENSION_ID,
     PASSWORDS_EXTENSION_KEY,
+    capture,
     chrome_app_path,
     passwords_extension_source,
     stage_passwords_extension,
 )
 from cookietuner.errors import PasswordsExtensionMissing, ProfileAccessDenied
+
+from .conftest import KEYBOARD_TIMEOUT
 
 # Fetched this way because the package re-exports the capture function over its
 # own module's name, so both `from cookietuner import capture` and monkeypatch's
@@ -180,3 +183,24 @@ def test_chrome_loads_the_extension_under_its_store_id(tmp_path: Path) -> None:
             await browser.stop()
 
     assert asyncio.run(load()) == PASSWORDS_EXTENSION_ID
+
+
+@pytest.mark.browser
+@requires_extension
+def test_the_extension_window_gives_the_sign_in_page_the_keyboard(
+    keyboard_url: str,
+) -> None:
+    """Nobody can sign in from the Passwords app into a window that won't type.
+
+    The extension arrives after the window is up, which is why the page is
+    reloaded rather than opened blank and navigated: an empty window leaves
+    the keyboard in the address bar, and navigating doesn't move it.
+    """
+    cookies = capture(
+        url=keyboard_url,
+        until=["keyboard"],
+        until_values=["keyboard=page"],
+        timeout=KEYBOARD_TIMEOUT,
+        passwords=True,
+    )
+    assert [c.value for c in cookies if c.name == "keyboard"] == ["page"]
