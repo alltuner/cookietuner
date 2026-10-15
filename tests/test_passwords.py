@@ -61,6 +61,7 @@ def test_the_installed_extension_is_found_with_a_manifest() -> None:
     assert (source / "manifest.json").exists()
 
 
+@pytest.mark.browser
 @requires_extension
 def test_chrome_loads_the_extension_under_its_store_id(tmp_path: Path) -> None:
     """The native helper only talks to the store ID, so this is the whole point.

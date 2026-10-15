@@ -5,7 +5,7 @@ import http.server
 import socketserver
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -79,9 +79,17 @@ def no_leftover_profiles() -> Iterator[None]:
     assert set(_leftover_profiles()) - before == set()
 
 
-requires_chrome = pytest.mark.skipif(
+_requires_chrome = pytest.mark.skipif(
     chrome_app_path() is None, reason="Google Chrome is not installed"
 )
+
+
+def drives_chrome(test: Callable[..., None]) -> Callable[..., None]:
+    """Marks a test that opens a real Chrome window.
+
+    Deselect these with ``-m "not browser"`` where no desktop session exists.
+    """
+    return pytest.mark.browser(_requires_chrome(test))
 
 
 def test_to_cookie_treats_a_session_cookie_as_never_expiring() -> None:
@@ -124,7 +132,7 @@ def test_to_cookie_reads_expiry_and_samesite() -> None:
     assert cookie.domain == ".example.com"
 
 
-@requires_chrome
+@drives_chrome
 @pytest.mark.usefixtures("no_leftover_profiles")
 def test_capture_returns_the_cookies_it_was_told_to_wait_for(login_url: str) -> None:
     """Capture should see HttpOnly and session cookies a store reader can't."""
@@ -144,7 +152,7 @@ def test_capture_returns_the_cookies_it_was_told_to_wait_for(login_url: str) -> 
     assert by_name["csrf_token"].expires is not None
 
 
-@requires_chrome
+@drives_chrome
 @pytest.mark.usefixtures("no_leftover_profiles")
 def test_capture_only_returns_the_requested_domain(login_url: str) -> None:
     cookies = capture(
@@ -154,7 +162,7 @@ def test_capture_only_returns_the_requested_domain(login_url: str) -> None:
     assert {c.domain for c in cookies} == {"127.0.0.1"}
 
 
-@requires_chrome
+@drives_chrome
 @pytest.mark.usefixtures("no_leftover_profiles")
 def test_capture_times_out_naming_the_cookies_that_never_arrived(
     login_url: str,
@@ -167,7 +175,7 @@ def test_capture_times_out_naming_the_cookies_that_never_arrived(
     assert "s3cr3t" not in message
 
 
-@requires_chrome
+@drives_chrome
 @pytest.mark.usefixtures("no_leftover_profiles")
 def test_capture_names_the_domain_a_wanted_cookie_turned_up_on(
     login_url: str,
@@ -181,7 +189,7 @@ def test_capture_names_the_domain_a_wanted_cookie_turned_up_on(
     assert "s3cr3t" not in message
 
 
-@requires_chrome
+@drives_chrome
 @pytest.mark.usefixtures("no_leftover_profiles")
 def test_capture_returns_everything_for_the_domain_when_the_window_closes(
     self_closing_url: str,
@@ -191,7 +199,7 @@ def test_capture_returns_everything_for_the_domain_when_the_window_closes(
     assert {c.name for c in cookies} == {"session_id", "csrf_token"}
 
 
-@requires_chrome
+@drives_chrome
 @pytest.mark.usefixtures("no_leftover_profiles")
 def test_capture_reports_a_window_closed_before_the_cookies_appeared(
     self_closing_url: str,

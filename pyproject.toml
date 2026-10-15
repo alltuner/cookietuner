@@ -44,6 +44,11 @@ cookietuner = "cookietuner:main"
 requires = ["uv_build>=0.13.1,<0.14.0"]
 build-backend = "uv_build"
 
+[tool.pytest.ini_options]
+markers = [
+    "browser: opens a real Chrome window, so it needs a desktop session",
+]
+
 [dependency-groups]
 dev = [
     "mkdocs>=1.6.1",
