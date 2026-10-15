@@ -399,25 +399,31 @@ class _Chrome:
                         session = await self._page_session()
                     if session is not None:
                         read = await self._read_identity(session)
-                        # A window still waiting for its first page holds the
-                        # empty document it opened with, which is not a secure
-                        # context and so knows nothing about the browser. The
-                        # target already reports the URL it is on its way to,
-                        # so the document is what has to be asked.
-                        if read.get("href", "about:blank") != "about:blank":
+                        if read is not None:
                             return read
                     await asyncio.sleep(POLL_INTERVAL)
         except TimeoutError:
             return {}
 
-    async def _read_identity(self, session: str) -> dict[str, Any]:
-        """Runs the identity script in a page, or nothing if it can't run yet."""
+    async def _read_identity(self, session: str) -> dict[str, Any] | None:
+        """What a page says the browser is, or None to ask it again.
+
+        A window still waiting for its first page holds the empty document it
+        opened with, which is not a secure context and so knows nothing about
+        the browser. The target already reports the URL it is on its way to,
+        so the document is what has to be asked.
+        """
         try:
-            return await self._evaluate(session, IDENTITY_SCRIPT)
+            read = await self._evaluate(session, IDENTITY_SCRIPT)
         except _CallRefused:
             # The page has no execution context to evaluate in yet, or it
             # navigated away from the one it had.
+            return None
+        if read is None:
+            # The page answered with an error of its own, so something in it
+            # has replaced what was asked for and asking again gets the same.
             return {}
+        return None if read.get("href", "about:blank") == "about:blank" else read
 
     async def _page_session(self) -> str | None:
         """A DevTools session on the page the capture opened, if it is there."""
@@ -432,14 +438,22 @@ class _Chrome:
         )
         return str(attached["sessionId"])
 
-    async def _evaluate(self, session: str, expression: str) -> dict[str, Any]:
-        """Runs one expression in a page and brings its value back."""
+    async def _evaluate(self, session: str, expression: str) -> dict[str, Any] | None:
+        """Runs one expression in a page and brings its value back.
+
+        An expression that throws, or whose promise rejects, is a call that
+        succeeded with the exception in its reply rather than one that failed,
+        so there is no error to catch and None says so instead.
+        """
         result = await self._call(
             "Runtime.evaluate",
             {"expression": expression, "awaitPromise": True, "returnByValue": True},
             session=session,
         )
-        return dict(result["result"]["value"])
+        if "exceptionDetails" in result:
+            return None
+        value = result["result"].get("value")
+        return dict(value) if isinstance(value, dict) else None
 
     async def stop(self) -> None:
         """Quits Chrome and removes its profile, whatever went before.

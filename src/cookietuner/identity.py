@@ -7,10 +7,10 @@ from typing import Any
 # Asked of the page the capture opened, because the user-agent metadata API
 # only exists in a secure context, so there is no browser-wide way to read it.
 # getHighEntropyValues answers with brands, mobile and platform as well as what
-# it was asked for, so one call covers both sets of hints. A page that has no
-# metadata to give answers null, and is an origin Chrome sends no hints to
-# either. The URL comes back because it is what tells a page that has loaded
-# from the empty document a window opens with.
+# it was asked for, so one call covers both sets of hints. A page outside a
+# secure context has no metadata to give and answers null. The URL comes back
+# because it is what tells a page that has loaded from the empty document a
+# window opens with.
 IDENTITY_SCRIPT = """(async () => {
   const data = navigator.userAgentData;
   return {

@@ -387,11 +387,10 @@ reuse.get("https://example.com/api/me")
 ```
 
 The client hints come from `navigator.userAgentData`, which a page only has in a
-secure context. A sign-in page on plain `http` has none to give, and is an origin
-Chrome sends no `sec-ch-ua` headers to either, so there the hints come back empty
-and `headers()` is the user agent and the language. The high-entropy hints are
-kept apart because a site only receives those when it asks for them with
-`Accept-CH`.
+secure context. A sign-in page on plain `http` has none to give, so there the
+hints come back empty and `headers()` is the user agent and the language, which
+come from the browser itself. The high-entropy hints are kept apart because a
+site only receives those when it asks for them with `Accept-CH`.
 
 !!! note "`final_url` can carry a token"
     A sign-in redirect often puts one in its query string or fragment, so the

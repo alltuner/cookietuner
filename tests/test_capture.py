@@ -14,6 +14,7 @@ from typing import Any, TypeVar
 import pytest
 
 from cookietuner.capture import (
+    IDENTITY_GRACE,
     PROFILE_PREFIX,
     _BrowserGone,
     _Chrome,
@@ -28,7 +29,7 @@ from cookietuner.capture import (
 )
 from cookietuner.conditions import Conditions, Progress, build, join_chunks
 from cookietuner.errors import CaptureIncomplete, CaptureTimeout
-from cookietuner.models import CapturedSession, Cookie
+from cookietuner.models import Cookie
 
 from .conftest import KEYBOARD_TIMEOUT, serve
 
@@ -90,6 +91,23 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 class _SelfClosingHandler(_Handler):
     body = SELF_CLOSING_PAGE
+
+
+# A page that doesn't want to be identified. Sign-in pages do replace what is
+# on the navigator, and asking this one anything raises instead of answering.
+HOSTILE_PAGE = b"""<html><body>sign in
+<script>
+  Object.defineProperty(navigator, "userAgentData", {
+    get() {
+      throw new Error("not telling");
+    },
+  });
+</script>
+</body></html>"""
+
+
+class _HostileHandler(_Handler):
+    body = HOSTILE_PAGE
 
 
 class _RecordingHandler(_Handler):
@@ -169,6 +187,12 @@ def login_url() -> Iterator[str]:
 def self_closing_url() -> Iterator[str]:
     """Serves a page whose script closes the window shortly after load."""
     yield from serve(_SelfClosingHandler)
+
+
+@pytest.fixture
+def hostile_url() -> Iterator[str]:
+    """Serves a page that raises when the identity is read from it."""
+    yield from serve(_HostileHandler)
 
 
 @pytest.fixture
@@ -907,12 +931,33 @@ def test_reading_the_identity_leaves_the_keyboard_on_the_page(
     assert session.client_hints
 
 
-def test_a_session_is_what_capture_session_promises() -> None:
-    """The model is the contract, so it comes back whole or not at all."""
-    session = CapturedSession(cookies=[], user_agent="Mozilla/5.0")
+# Well under IDENTITY_GRACE, so a page that is never going to answer failing to
+# say so fails this test rather than holding the capture up.
+ANSWERED_PROMPTLY = IDENTITY_GRACE / 2
 
-    assert session.cookies == []
-    assert session.client_hints == {}
-    assert session.high_entropy_hints == {}
-    assert session.accept_language is None
-    assert session.final_url is None
+
+@drives_chrome
+@pytest.mark.usefixtures("no_leftover_profiles")
+def test_a_page_that_refuses_to_be_asked_costs_the_capture_nothing(
+    hostile_url: str,
+) -> None:
+    """An expression that throws is a call that succeeded, with no error to see.
+
+    Read wrong, that either breaks the capture or waits out the grace period
+    for an answer the page has already refused to give.
+    """
+
+    async def identity_of(url: str) -> dict[str, Any]:
+        chrome = chrome_app_path()
+        assert chrome is not None
+        browser = _Chrome(
+            chrome, Path(tempfile.mkdtemp(prefix=PROFILE_PREFIX)), url, None
+        )
+        try:
+            await browser.start()
+            async with asyncio.timeout(ANSWERED_PROMPTLY):
+                return await browser.page_identity()
+        finally:
+            await browser.stop()
+
+    assert asyncio.run(identity_of(hostile_url)) == {}

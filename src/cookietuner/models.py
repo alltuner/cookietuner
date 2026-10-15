@@ -46,7 +46,7 @@ class CapturedSession(BaseModel):
     cookies: list[Cookie]
     user_agent: str
     # Empty when the page the capture opened had no user-agent metadata to
-    # give, which an insecure origin never does, and is sent no hints either.
+    # give, which is what an insecure origin has.
     client_hints: dict[str, str] = Field(default_factory=dict)
     high_entropy_hints: dict[str, str] = Field(default_factory=dict)
     accept_language: str | None = None

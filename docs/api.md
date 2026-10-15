@@ -68,9 +68,10 @@ high-entropy ones are left out, because a site only receives those when it asks
 for them with `Accept-CH`; send them yourself if it does.
 
 The hints are read from `navigator.userAgentData`, which only exists in a secure
-context. A sign-in page on plain `http` has none to give, and is an origin Chrome
-sends no `sec-ch-ua` headers to either, so both hint dictionaries come back empty
-and `headers()` leaves them out.
+context. A sign-in page on plain `http` has none to give, so both hint
+dictionaries come back empty there and `headers()` leaves them out, as does a
+page that replaces the API with one that throws. The user agent and the language
+come from the browser itself and are always there.
 
 ## Chrome
 
