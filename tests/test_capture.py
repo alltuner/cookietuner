@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 from cookietuner.capture import (
+    EXTRA_ARGUMENTS_ENV,
     PROFILE_PREFIX,
     _BrowserGone,
     _wait_for_cookies,
@@ -625,6 +626,36 @@ def test_no_unsupported_flag_warning_covers_the_sign_in_page() -> None:
         proxy=None,
     )
     assert "--test-type" in args
+
+
+def test_extra_switches_are_passed_before_the_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Chrome takes the URL positionally, so anything added has to precede it."""
+    monkeypatch.setenv(EXTRA_ARGUMENTS_ENV, "--headless=new --window-size=800,600")
+
+    args = chrome_arguments(
+        chrome=Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        profile=Path("/tmp/profile"),
+        url="https://example.com/login",
+        proxy=None,
+    )
+
+    assert args[-1] == "https://example.com/login"
+    assert "--headless=new" in args
+    assert "--window-size=800,600" in args
+
+
+def test_no_extra_switches_by_default() -> None:
+    """A capture needs a window someone can sign in to, so nothing is added."""
+    args = chrome_arguments(
+        chrome=Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        profile=Path("/tmp/profile"),
+        url="https://example.com/login",
+        proxy=None,
+    )
+
+    assert not [a for a in args if "headless" in a]
 
 
 def test_the_blocking_and_async_captures_take_the_same_arguments() -> None:

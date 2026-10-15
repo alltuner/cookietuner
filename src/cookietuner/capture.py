@@ -4,6 +4,7 @@
 import asyncio
 import json
 import os
+import shlex
 import shutil
 import tempfile
 from collections.abc import Callable, Iterable
@@ -26,6 +27,12 @@ from .errors import (
 from .models import Cookie
 
 PROFILE_PREFIX = "cookietuner-capture-"
+
+# Extra switches for the Chrome a capture launches, read as a shell-style word
+# list. A capture opens a window for someone to sign in to, so there is nothing
+# to add in normal use; this is the seam the test suite uses to run Chrome
+# headless, where nobody is going to type anything.
+EXTRA_ARGUMENTS_ENV = "COOKIETUNER_CHROME_ARGUMENTS"
 
 # Apple's iCloud Passwords extension, which reaches the Passwords app through a
 # native helper. The helper only talks to these two extension IDs, and Chrome
@@ -199,6 +206,8 @@ def chrome_arguments(
         # Without this, WebRTC can reach the network directly and expose the
         # local address the proxy is there to hide.
         args.append("--force-webrtc-ip-handling-policy=disable_non_proxied_udp")
+    args.extend(shlex.split(os.environ.get(EXTRA_ARGUMENTS_ENV, "")))
+    # Chrome takes the URL to open as its one positional argument.
     args.append(url)
     return args
 

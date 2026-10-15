@@ -193,6 +193,17 @@ uv run pytest
 uv run cookietuner
 ```
 
+The tests marked `browser` drive a real Chrome. Locally they run it headless, so
+the suite doesn't steal focus; CI runs them with a real window, which is what a
+capture actually opens. To watch one happen:
+
+```bash
+COOKIETUNER_TEST_HEADLESS=0 uv run pytest -m browser
+
+# Or skip them entirely, where there's no desktop session
+uv run pytest -m "not browser"
+```
+
 ## License
 
 [MIT](LICENSE)
