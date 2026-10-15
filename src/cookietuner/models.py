@@ -1,9 +1,9 @@
 # ABOUTME: Pydantic models for cookie data structures
-# ABOUTME: Defines Cookie and browser profile configuration
+# ABOUTME: Defines Cookie, a captured session and browser profile configuration
 
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field
 
 
 class Cookie(BaseModel):
@@ -34,6 +34,35 @@ class Cookie(BaseModel):
 
     def __str__(self) -> str:
         return f"{self.name}={self.value}"
+
+
+class CapturedSession(BaseModel):
+    """The cookies a sign-in set, and the browser that signed in.
+
+    A session sent from a browser that didn't sign in is what a site sees as a
+    stolen one, so the identity it was captured with travels with the cookies.
+    """
+
+    cookies: list[Cookie]
+    user_agent: str
+    # Empty when the page the capture opened had no user-agent metadata to
+    # give, which is what an insecure origin has.
+    client_hints: dict[str, str] = Field(default_factory=dict)
+    high_entropy_hints: dict[str, str] = Field(default_factory=dict)
+    accept_language: str | None = None
+    final_url: str | None = None
+
+    def headers(self) -> dict[str, str]:
+        """The request headers this browser sends without being asked.
+
+        The high-entropy hints are left out, because a site only receives
+        those when it asks for them with ``Accept-CH``.
+        """
+        headers = {"User-Agent": self.user_agent}
+        if self.accept_language:
+            headers["Accept-Language"] = self.accept_language
+        headers.update(self.client_hints)
+        return headers
 
 
 class BrowserProfile(BaseModel):

@@ -4,6 +4,7 @@
 import json
 import sys
 from enum import Enum
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -12,8 +13,9 @@ from rich.table import Table
 
 from . import chrome, safari
 from .capture import capture as capture_cookies
+from .capture import capture_session
 from .errors import CaptureError, CookieStoreUnreadable
-from .models import Cookie
+from .models import CapturedSession, Cookie
 
 app = typer.Typer(
     help="Extract cookies from your browsers",
@@ -158,6 +160,19 @@ def _show_pending(pending: list[str]) -> None:
         messages.print("[cyan]Everything asked for is there.[/cyan]")
 
 
+def _session_json(session: CapturedSession) -> dict[str, Any]:
+    """The cookies and the browser that set them, as one object.
+
+    The cookies keep the shape they have on their own, so a script reading
+    them doesn't have to care which way the capture was asked for.
+    """
+    data = session.model_dump(mode="json")
+    data["cookies"] = [
+        cookie.model_dump(mode="json", exclude_none=True) for cookie in session.cookies
+    ]
+    return data
+
+
 @app.command()
 def capture(
     url: str = typer.Option(..., "--url", help="Page to open for signing in"),
@@ -194,6 +209,12 @@ def capture(
     ),
     output: OutputFormat = typer.Option(
         OutputFormat.table, "--output", "-o", help="Output format"
+    ),
+    identity: bool = typer.Option(
+        False,
+        "--identity",
+        help="Also print the browser's user agent, client hints and language, "
+        "so the session can be replayed as the browser that signed in (-o json)",
     ),
     timeout: float = typer.Option(300.0, "--timeout", help="Seconds before giving up"),
     passwords: bool = typer.Option(
@@ -232,19 +253,32 @@ def capture(
             "[cyan]The Passwords extension needs pairing again, because the "
             "profile is new.[/cyan]"
         )
+    show_identity = identity and output == OutputFormat.json
+    if identity and not show_identity:
+        # The identity is only ever printed as JSON, so asking for it in a
+        # table would quietly do nothing.
+        messages.print(
+            "[yellow]--identity only prints with -o json, so it does nothing "
+            "here.[/yellow]"
+        )
+
+    arguments: dict[str, Any] = {
+        "url": url,
+        "domains": domain,
+        "until": set(until),
+        "until_values": until_value,
+        "until_url": until_url,
+        "settle": settle,
+        "timeout": timeout,
+        "passwords": passwords,
+        "proxy": proxy,
+        "on_progress": _show_pending,
+    }
 
     try:
-        cookie_list = capture_cookies(
-            url=url,
-            domains=domain,
-            until=set(until),
-            until_values=until_value,
-            until_url=until_url,
-            settle=settle,
-            timeout=timeout,
-            passwords=passwords,
-            proxy=proxy,
-            on_progress=_show_pending,
+        session = capture_session(**arguments) if show_identity else None
+        cookie_list = (
+            capture_cookies(**arguments) if session is None else session.cookies
         )
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -255,6 +289,9 @@ def capture(
         messages.print("[yellow]Capture cancelled[/yellow]")
         raise typer.Exit(130) from None
 
+    if session is not None:
+        print(json.dumps(_session_json(session), indent=2))
+        return
     _render(cookie_list, output)
 
 

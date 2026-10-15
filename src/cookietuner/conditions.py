@@ -232,6 +232,11 @@ class Progress:
     settling: bool = False
     # Wanted cookie names seen on domains that weren't asked for.
     elsewhere: dict[str, set[str]] = field(default_factory=dict)
+    # True once a window has been there, which is what tells a sign-in that
+    # finished from a browser that never got started.
+    seen_a_window: bool = False
+    # The page last seen open, which is where the sign-in ended up.
+    final_url: str | None = None
 
     @property
     def satisfied(self) -> bool:
