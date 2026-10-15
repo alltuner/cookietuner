@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.3](https://github.com/alltuner/cookietuner/compare/v0.2.2...v0.2.3) (2026-10-15)
+
+
+### Features
+
+* support every maintained Python version (3.11 to 3.15) ([#57](https://github.com/alltuner/cookietuner/issues/57)) ([b27a538](https://github.com/alltuner/cookietuner/commit/b27a5386be621550394f76ae592cf6263ecd70d3))
+
+
+### Miscellaneous Chores
+
+* **deps:** update python docker tag to v3.15 ([#50](https://github.com/alltuner/cookietuner/issues/50)) ([fb606f2](https://github.com/alltuner/cookietuner/commit/fb606f266bcc24a36c21731e00384bd2056af356))
+
 ## [0.2.2](https://github.com/alltuner/cookietuner/compare/v0.2.1...v0.2.2) (2026-10-15)
 
 
