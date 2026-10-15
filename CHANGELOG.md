@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/alltuner/cookietuner/compare/v0.2.4...v0.3.0) (2026-10-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **capture:** capture(domain=) is now capture(domains=), taking several; BrowserClosedEarly is renamed CaptureIncomplete; capture failures exit with 3-7 rather than 1.
+
+### Features
+
+* **capture:** flexible completion conditions, chunked cookies, consistent browser exit, clearer errors ([#62](https://github.com/alltuner/cookietuner/issues/62)) ([e16f6f1](https://github.com/alltuner/cookietuner/commit/e16f6f11efb9f633e18b211c92fc6a9bd2c591a8))
+
 ## [0.2.4](https://github.com/alltuner/cookietuner/compare/v0.2.3...v0.2.4) (2026-10-15)
 
 
