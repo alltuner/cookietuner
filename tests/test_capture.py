@@ -40,8 +40,7 @@ SELF_CLOSING_PAGE = (
 # A cookie too big for one header, split the way Supabase's SSR helpers do it.
 CHUNKED = "sb-test-auth-token"
 
-# Stands in for someone filling the form in and submitting it.
-LOGIN_PAGE = """<html><body>
+SIGN_IN_FORM = """<html><body>
 <form id="signin" method="post" action="/signin">
   <input name="who" value="someone">
 </form>
@@ -50,9 +49,15 @@ LOGIN_PAGE = """<html><body>
 </script>
 </body></html>""".encode()
 
-# The trailing chunk lands well after the sign-in conditions first hold, so
-# only a capture that settles sees it.
-TRAILING_CHUNK_DELAY_MS = 1200
+# The same page with nobody signing in, so what a capture sees there is settled
+# rather than a race against the script above.
+WAITING_TO_SIGN_IN = b"<html><body>the sign-in page, untouched</body></html>"
+
+# The trailing chunk lands well after the sign-in conditions first hold, so only
+# a capture that settles sees it. Several polls' worth, because a loaded CI
+# runner is allowed to be slow without the result changing.
+TRAILING_CHUNK_DELAY_MS = 2000
+SETTLE_LONG_ENOUGH = 5.0
 DASHBOARD_PAGE = f"""<html><body>dashboard
 <script>
   setTimeout(
@@ -92,13 +97,15 @@ class _SignInHandler(_Handler):
     and the last chunk turns up after the redirect to the dashboard.
     """
 
+    login_page = SIGN_IN_FORM
+
     def do_GET(self) -> None:
         if self.path.startswith("/dashboard"):
             self._page(DASHBOARD_PAGE)
         elif self.path in ("/", "/login"):
             # Deliberately the same name the signed-in session uses, so a
             # capture waiting on the name alone would finish here.
-            self._page(LOGIN_PAGE, ["uid=anon_7; Path=/"])
+            self._page(self.login_page, ["uid=anon_7; Path=/"])
         else:
             # Anything else, Chrome's favicon request included, must not reset
             # the cookies this sign-in is about.
@@ -125,6 +132,16 @@ class _SignInHandler(_Handler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+
+class _WaitingToSignInHandler(_SignInHandler):
+    """The same sign-in, with nobody signing in on it.
+
+    Only the anonymous cookie is ever set, so what a capture finds here is a
+    fact rather than a race against a script submitting the form.
+    """
+
+    login_page = WAITING_TO_SIGN_IN
 
 
 def _serve(handler: type[http.server.BaseHTTPRequestHandler]) -> Iterator[str]:
@@ -156,6 +173,12 @@ def self_closing_url() -> Iterator[str]:
 def sign_in_url() -> Iterator[str]:
     """Serves the anonymous-then-real sign-in, with chunks and a redirect."""
     yield from _serve(_SignInHandler)
+
+
+@pytest.fixture
+def waiting_to_sign_in_url() -> Iterator[str]:
+    """Serves the same sign-in page, with nobody signing in on it."""
+    yield from _serve(_WaitingToSignInHandler)
 
 
 def _leftover_profiles() -> list[Path]:
@@ -489,7 +512,7 @@ def test_capture_waits_out_an_anonymous_session_and_collects_the_real_one(
         until={CHUNKED},
         until_values=["uid!=anon_*"],
         until_url="*/dashboard*",
-        settle=3,
+        settle=SETTLE_LONG_ENOUGH,
         timeout=60,
     )
 
@@ -520,16 +543,25 @@ def test_capture_without_settling_can_miss_the_trailing_chunk(
 
 @drives_chrome
 @pytest.mark.usefixtures("no_leftover_profiles")
-def test_a_name_only_condition_would_end_on_the_anonymous_cookie(
-    sign_in_url: str,
+def test_a_name_only_condition_ends_before_anyone_signs_in(
+    waiting_to_sign_in_url: str,
 ) -> None:
     """The problem the value condition solves, pinned down.
 
-    Waiting for the name alone finishes while the visitor is still anonymous.
+    The sign-in page sets the session cookie's name for anonymous visitors, so
+    waiting on the name alone finishes as that page loads, with nobody signed
+    in and no real session anywhere.
     """
-    cookies = capture(url=sign_in_url, domains={"127.0.0.1"}, until={"uid"}, timeout=60)
+    cookies = capture(
+        url=waiting_to_sign_in_url,
+        domains={"127.0.0.1"},
+        until={"uid"},
+        timeout=60,
+    )
 
-    assert {c.name: c.value for c in cookies}["uid"] == "anon_7"
+    by_name = {c.name: c.value for c in cookies}
+    assert by_name["uid"] == "anon_7"
+    assert "session_id" not in by_name
 
 
 def _capture_chrome_pid() -> int | None:
