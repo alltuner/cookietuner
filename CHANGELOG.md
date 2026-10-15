@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/alltuner/cookietuner/compare/v0.3.0...v0.3.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* **capture:** give the sign-in page the keyboard with --passwords ([#65](https://github.com/alltuner/cookietuner/issues/65)) ([f9c84fe](https://github.com/alltuner/cookietuner/commit/f9c84feb5fee49c45fcbf41865342928a22fe679))
+
 ## [0.3.0](https://github.com/alltuner/cookietuner/compare/v0.2.4...v0.3.0) (2026-10-15)
 
 
