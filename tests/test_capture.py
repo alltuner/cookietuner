@@ -15,8 +15,10 @@ import pytest
 
 from cookietuner.capture import (
     IDENTITY_GRACE,
+    POLL_INTERVAL,
     PROFILE_PREFIX,
     _BrowserGone,
+    _CallRefused,
     _Chrome,
     _wait_for_cookies,
     capture,
@@ -95,6 +97,7 @@ class _SelfClosingHandler(_Handler):
 
 # A page that doesn't want to be identified. Sign-in pages do replace what is
 # on the navigator, and asking this one anything raises instead of answering.
+# It marks the window once it has, so a test can tell the refusal is in place.
 HOSTILE_PAGE = b"""<html><body>sign in
 <script>
   Object.defineProperty(navigator, "userAgentData", {
@@ -102,6 +105,7 @@ HOSTILE_PAGE = b"""<html><body>sign in
       throw new Error("not telling");
     },
   });
+  window.refused = true;
 </script>
 </body></html>"""
 
@@ -947,6 +951,18 @@ def test_a_page_that_refuses_to_be_asked_costs_the_capture_nothing(
     for an answer the page has already refused to give.
     """
 
+    async def has_refused(browser: _Chrome) -> bool:
+        session = await browser._page_session()
+        if session is None:
+            return False
+        try:
+            probe = await browser._evaluate(
+                session, "({refused: window.refused === true})"
+            )
+        except _CallRefused:
+            return False
+        return probe is not None and bool(probe["refused"])
+
     async def identity_of(url: str) -> dict[str, Any]:
         chrome = chrome_app_path()
         assert chrome is not None
@@ -955,6 +971,12 @@ def test_a_page_that_refuses_to_be_asked_costs_the_capture_nothing(
         )
         try:
             await browser.start()
+            # The document commits before its script runs, and a read in
+            # between gets the real identity, so the page has to have refused
+            # before it is asked.
+            async with asyncio.timeout(IDENTITY_GRACE):
+                while not await has_refused(browser):
+                    await asyncio.sleep(POLL_INTERVAL)
             async with asyncio.timeout(ANSWERED_PROMPTLY):
                 return await browser.page_identity()
         finally:
