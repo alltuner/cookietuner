@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.3](https://github.com/alltuner/cookietuner/compare/v0.3.2...v0.3.3) (2026-10-26)
+
+
+### Documentation Updates
+
+* link the sponsor page by its trailing-slash URL ([#71](https://github.com/alltuner/cookietuner/issues/71)) ([a5d7e92](https://github.com/alltuner/cookietuner/commit/a5d7e92def9d1c721d78957ce51d02ec674c1d33))
+
+
+### CI/CD Changes
+
+* build the docs with just site and deploy with Wrangler ([#74](https://github.com/alltuner/cookietuner/issues/74)) ([7db1838](https://github.com/alltuner/cookietuner/commit/7db18380f0bf8ffc8998f3f6474a8aedd4f4bc13))
+
 ## [0.3.2](https://github.com/alltuner/cookietuner/compare/v0.3.1...v0.3.2) (2026-10-15)
 
 
